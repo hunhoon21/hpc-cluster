@@ -1,28 +1,45 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 /* ═══════════════════════════════════════════════════════
-   AVATAR OnE  v1.2  —  ML Training Platform Demo
-   
-   v1.2 Changes:
-   · Test execution = user-initiated (same as pipeline execution)
-   · Resource threshold-based approval (above → admin, below → immediate)
-   · Test run reference (optional annotation in main execution)
-   · Concurrent execution limit (max 1 running → others queue)
-   
+   AVATAR OnE  v1.3  —  ML Training Platform Demo
+
+   v1.3 Changes:
+   · Per-component Docker images and resource allocation
+   · Two-tab Builder: Component Management + Workflow Composition
+   · SVG workflow diagram with topological layout
+   · Approval threshold based on per-component max values
+   · Cycle detection for workflow dependencies
+
    Flow: Builder → Test Run → Execution Request → Approval → Run → Model
    ═══════════════════════════════════════════════════════ */
 
 const uid = () => "WL-" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 3).toUpperCase();
 const mid = () => "MD-" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 3).toUpperCase();
 const rid = () => "TR-" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 3).toUpperCase();
+const cid = () => "C-" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 3).toUpperCase();
 const now = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0") + " " + String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0"); };
 
 // Resource threshold — requests above this require admin approval
 const THRESHOLD = { gpu: 4, mem: 128 };
 
 const INIT_SPECS = [
-  { id: "SP-001", name: "LLM-FineTune-v3", version: "1.2.0", image: "registry.avatar.io/llm-trainer:3.1", status: "ready", created: "2025-02-01", components: 4, gpu: "A100 x 4", mem: "128GB" },
-  { id: "SP-002", name: "ResNet-Exp-42", version: "2.0.1", image: "registry.avatar.io/cv-resnet:2.0", status: "ready", created: "2025-01-28", components: 3, gpu: "V100 x 2", mem: "64GB" },
+  { id: "SP-001", name: "LLM-FineTune-v3", version: "1.2.0", status: "ready", created: "2025-02-01",
+    components: [
+      { id: "C-001", name: "data-loader", type: "data_loader", image: "registry.avatar.io/data-loader:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "32GB", params: {}, order: 1 },
+      { id: "C-002", name: "preprocessor", type: "preprocessor", image: "registry.avatar.io/preprocessor:2.1", tag: "2.1", gpu_type: "A100", gpu_count: 2, mem: "64GB", params: { batch_size: 128 }, order: 2 },
+      { id: "C-003", name: "trainer", type: "trainer", image: "registry.avatar.io/llm-trainer:3.1", tag: "3.1", gpu_type: "A100", gpu_count: 4, mem: "128GB", params: { lr: 0.001, epochs: 30 }, order: 3 },
+      { id: "C-004", name: "evaluator", type: "evaluator", image: "registry.avatar.io/evaluator:1.5", tag: "1.5", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 4 },
+    ],
+    workflow: [{ from: "C-001", to: "C-002" }, { from: "C-002", to: "C-003" }, { from: "C-003", to: "C-004" }]
+  },
+  { id: "SP-002", name: "ResNet-Exp-42", version: "2.0.1", status: "ready", created: "2025-01-28",
+    components: [
+      { id: "C-005", name: "data-loader", type: "data_loader", image: "registry.avatar.io/cv-loader:1.2", tag: "1.2", gpu_type: "V100", gpu_count: 1, mem: "32GB", params: {}, order: 1 },
+      { id: "C-006", name: "trainer", type: "trainer", image: "registry.avatar.io/cv-resnet:2.0", tag: "2.0", gpu_type: "V100", gpu_count: 2, mem: "64GB", params: { lr: 0.01, epochs: 50 }, order: 2 },
+      { id: "C-007", name: "evaluator", type: "evaluator", image: "registry.avatar.io/cv-eval:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 3 },
+    ],
+    workflow: [{ from: "C-005", to: "C-006" }, { from: "C-006", to: "C-007" }]
+  },
 ];
 
 const INIT_TEST_RUNS = [
@@ -104,6 +121,67 @@ const exceedsThreshold = (gpuStr, memStr) => {
   return parseGpuCount(gpuStr) >= THRESHOLD.gpu || parseMemNum(memStr) >= THRESHOLD.mem;
 };
 
+/* ─── Compatibility Helpers (handle both old flat and new component-array specs) ─── */
+const getComponentCount = (spec) => Array.isArray(spec.components) ? spec.components.length : spec.components;
+
+const getMaxGpu = (spec) => {
+  if (!Array.isArray(spec.components)) return spec.gpu;
+  const maxComp = spec.components.reduce((max, c) =>
+    c.gpu_count > (max?.gpu_count || 0) ? c : max, null);
+  return maxComp ? `${maxComp.gpu_type} x ${maxComp.gpu_count}` : "N/A";
+};
+
+const getMaxMem = (spec) => {
+  if (!Array.isArray(spec.components)) return spec.mem;
+  const maxMem = Math.max(...spec.components.map(c => parseInt(c.mem) || 0));
+  return `${maxMem}GB`;
+};
+
+const getTotalGpuSummary = (spec) => {
+  if (!Array.isArray(spec.components)) return spec.gpu;
+  const totals = {};
+  spec.components.forEach(c => {
+    totals[c.gpu_type] = (totals[c.gpu_type] || 0) + c.gpu_count;
+  });
+  return Object.entries(totals).map(([t, n]) => `${t} x ${n}`).join(", ");
+};
+
+const getTotalMem = (spec) => {
+  if (!Array.isArray(spec.components)) return spec.mem;
+  const total = spec.components.reduce((sum, c) => sum + (parseInt(c.mem) || 0), 0);
+  return `${total}GB`;
+};
+
+const getSpecImage = (spec) => {
+  if (!Array.isArray(spec.components)) return spec.image;
+  if (spec.components.length === 0) return "N/A";
+  const first = spec.components[0];
+  const suffix = spec.components.length > 1 ? ` 외 ${spec.components.length - 1}개` : "";
+  return first.image + suffix;
+};
+
+const wouldCreateCycle = (edges, fromId, toId) => {
+  const visited = new Set();
+  const stack = [toId];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === fromId) return true;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    edges.filter(e => e.from === current).forEach(e => stack.push(e.to));
+  }
+  return false;
+};
+
+const exceedsThresholdSpec = (spec) => {
+  if (!Array.isArray(spec.components)) {
+    return exceedsThreshold(spec.gpu, spec.mem);
+  }
+  return spec.components.some(c =>
+    c.gpu_count >= THRESHOLD.gpu || (parseInt(c.mem) || 0) >= THRESHOLD.mem
+  );
+};
+
 /* ═══════════════════════════ MAIN APP ═══════════════════════════ */
 export default function App() {
   const [mode, setMode] = useState("user");
@@ -181,7 +259,7 @@ export default function App() {
     if (!spec) return;
     const tr = {
       id: rid(), specId, specName: spec.name, status: "running",
-      gpu: spec.gpu, mem: spec.mem, created: now(), duration: null, log: ""
+      gpu: getMaxGpu(spec), mem: getMaxMem(spec), created: now(), duration: null, log: ""
     };
     setTestRuns(prev => [...prev, tr]);
     flash("테스트 실행을 시작합니다...");
@@ -189,7 +267,7 @@ export default function App() {
     setTimeout(() => {
       setTestRuns(prev => prev.map(t => t.id === tr.id ? {
         ...t, status: "passed", duration: (0.2 + Math.random() * 0.5).toFixed(2) + "s",
-        log: `[OK] 이미지 로드 성공 (${spec.gpu})\n[OK] 환경 변수 검증 완료\n[OK] 컴포넌트 초기화 성공 (${spec.components}개)\n[OK] 파이프라인 실행 완료\nResult: PASS`
+        log: `[OK] 이미지 로드 성공 (${getMaxGpu(spec)})\n[OK] 환경 변수 검증 완료\n[OK] 컴포넌트 초기화 성공 (${getComponentCount(spec)}개)\n[OK] 파이프라인 실행 완료\nResult: PASS`
       } : t));
       flash("✓ 테스트 실행 완료 — 결과를 확인하세요.");
     }, 2500);
@@ -262,7 +340,7 @@ export default function App() {
             <span style={{ color: "#fff", fontSize: 14, fontWeight: 800, letterSpacing: -0.5 }}>A</span>
           </div>
           <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>AVATAR OnE</span>
-          <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", marginLeft: 2 }}>v1.2</span>
+          <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", marginLeft: 2 }}>v1.3</span>
         </div>
         <div style={{ flex: 1 }} />
         
@@ -403,12 +481,12 @@ function HomePage({ mode, setPage, workloads, models, specs, testRuns, pending, 
         ))}
       </div>
 
-      {/* v1.2 Workflow guide */}
+      {/* v1.3 Workflow guide */}
       <Card style={{ marginBottom: 20, background: "linear-gradient(135deg, #F8FAFC, #F1F5F9)", border: "1px solid #E2E8F0" }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>v1.2 워크플로우</div>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>v1.3 워크플로우</div>
         <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
           {[
-            { step: "1", title: "Builder", desc: "파이프라인 정의\n스펙 파일 생성", color: "#475569" },
+            { step: "1", title: "Builder", desc: "컴포넌트 정의\n워크플로우 구성", color: "#475569" },
             { step: "2", title: "테스트 실행", desc: "파이프라인 검증\n(선택 사항)", color: "#7E22CE" },
             { step: "3", title: "실행 요청", desc: "자원 요청 + 테스트\nrun 참조(선택)", color: "#1E40AF" },
             { step: "4", title: "승인", desc: "임계치 이상 → 관리자\n임계치 미만 → 자동승인", color: "#B45309" },
@@ -460,89 +538,266 @@ function HomePage({ mode, setPage, workloads, models, specs, testRuns, pending, 
   );
 }
 
+/* ═══════════════════════════ WORKFLOW DIAGRAM ═══════════════════════════ */
+function WorkflowDiagram({ components, workflow }) {
+  if (!components || components.length === 0 || !workflow || workflow.length === 0) {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: "#94A3B8", fontSize: 13 }}>
+        컴포넌트와 연결을 추가하면 워크플로우 다이어그램이 표시됩니다
+      </div>
+    );
+  }
+
+  const compMap = {};
+  components.forEach(c => { compMap[c.id] = c; });
+
+  // Build adjacency and in-degree
+  const adj = {};
+  const inDeg = {};
+  components.forEach(c => { adj[c.id] = []; inDeg[c.id] = 0; });
+  workflow.forEach(e => {
+    if (adj[e.from] && compMap[e.to]) {
+      adj[e.from].push(e.to);
+      inDeg[e.to] = (inDeg[e.to] || 0) + 1;
+    }
+  });
+
+  // BFS from roots, rank = max(predecessor ranks) + 1
+  const rank = {};
+  const roots = components.filter(c => !inDeg[c.id] || inDeg[c.id] === 0);
+  const queue = roots.map(c => c.id);
+  roots.forEach(c => { rank[c.id] = 0; });
+
+  const visited = new Set();
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    if (visited.has(cur)) continue;
+    visited.add(cur);
+    (adj[cur] || []).forEach(nxt => {
+      rank[nxt] = Math.max(rank[nxt] || 0, (rank[cur] || 0) + 1);
+      queue.push(nxt);
+    });
+  }
+
+  // Disconnected nodes go to rank 0
+  components.forEach(c => { if (rank[c.id] === undefined) rank[c.id] = 0; });
+
+  // Group by rank
+  const rankGroups = {};
+  let maxRank = 0;
+  components.forEach(c => {
+    const r = rank[c.id];
+    if (!rankGroups[r]) rankGroups[r] = [];
+    rankGroups[r].push(c);
+    if (r > maxRank) maxRank = r;
+  });
+
+  let maxNodesInRank = 0;
+  Object.values(rankGroups).forEach(g => { if (g.length > maxNodesInRank) maxNodesInRank = g.length; });
+
+  // Position nodes
+  const positions = {};
+  Object.keys(rankGroups).forEach(r => {
+    rankGroups[r].forEach((c, idx) => {
+      positions[c.id] = { x: parseInt(r) * 200 + 30, y: idx * 80 + 30 };
+    });
+  });
+
+  const svgW = Math.max((maxRank + 1) * 200 + 60, 400);
+  const svgH = Math.max(maxNodesInRank * 80 + 60, 150);
+
+  const nodeW = 140;
+  const nodeH = 56;
+
+  const fillByType = { trainer: "#DBEAFE", data_loader: "#DCFCE7", preprocessor: "#FEF3C7", evaluator: "#F3E8FF" };
+  const borderByType = { trainer: "#1E40AF", data_loader: "#166534", preprocessor: "#92400E", evaluator: "#6B21A8" };
+  const typeLabel = { trainer: "Trainer", data_loader: "Data Loader", preprocessor: "Preprocessor", evaluator: "Evaluator" };
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <svg width={svgW} height={svgH} style={{ display: "block" }}>
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto" fill="#94A3B8">
+            <polygon points="0 0, 10 3.5, 0 7" />
+          </marker>
+        </defs>
+        {/* Edges */}
+        {workflow.map((e, i) => {
+          const from = positions[e.from];
+          const to = positions[e.to];
+          if (!from || !to) return null;
+          return (
+            <line key={i}
+              x1={from.x + nodeW} y1={from.y + nodeH / 2}
+              x2={to.x} y2={to.y + nodeH / 2}
+              stroke="#94A3B8" strokeWidth={1.5} markerEnd="url(#arrowhead)" />
+          );
+        })}
+        {/* Nodes */}
+        {components.map(c => {
+          const pos = positions[c.id];
+          if (!pos) return null;
+          const fill = fillByType[c.type] || "#F3F4F6";
+          const border = borderByType[c.type] || "#374151";
+          const res = `${c.gpuType} x ${c.gpuCount}, ${c.mem}`;
+          return (
+            <g key={c.id}>
+              <rect x={pos.x} y={pos.y} width={nodeW} height={nodeH} rx={10}
+                fill={fill} stroke={border} strokeWidth={1.5} />
+              <text x={pos.x + nodeW / 2} y={pos.y + 18} textAnchor="middle"
+                fontSize={12} fontWeight="bold" fill="#0F172A">
+                {(c.name || "unnamed").slice(0, 16)}
+              </text>
+              <text x={pos.x + nodeW / 2} y={pos.y + 32} textAnchor="middle"
+                fontSize={9} fill="#64748B">
+                {typeLabel[c.type] || c.type}
+              </text>
+              <text x={pos.x + nodeW / 2} y={pos.y + 46} textAnchor="middle"
+                fontSize={9} fill="#64748B">
+                {res}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 /* ═══════════════════════════ BUILDER ═══════════════════════════ */
 function BuilderPage({ flash, addSpec }) {
-  const [form, setForm] = useState({ name: "", image: "", tag: "", envVars: [{ key: "", value: "" }], components: [{ name: "", type: "trainer", params: "" }], gpuType: "A100", gpuCount: "2", mem: "64GB" });
+  const [activeTab, setActiveTab] = useState("components");
+  const [form, setForm] = useState({
+    name: "", version: "1.0.0",
+    envVars: [{ key: "", value: "" }],
+    components: [{
+      id: cid(), name: "", type: "trainer",
+      image: "", tag: "", gpuType: "A100", gpuCount: "2", mem: "64GB",
+      params: "", order: 1
+    }]
+  });
+  const [workflow, setWorkflow] = useState([]);
   const [generated, setGenerated] = useState(null);
+  const [edgeError, setEdgeError] = useState("");
+  const [edgeFrom, setEdgeFrom] = useState("");
+  const [edgeTo, setEdgeTo] = useState("");
+  const [autoEdgesDone, setAutoEdgesDone] = useState(false);
+
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const setComp = (idx, key, val) => setForm(f => ({
+    ...f,
+    components: f.components.map((c, i) => i === idx ? { ...c, [key]: val } : c)
+  }));
+
+  const parseJSON = (s) => { try { return JSON.parse(s); } catch { return s || {}; } };
+
+  const addComponent = () => {
+    const maxOrder = form.components.reduce((m, c) => Math.max(m, c.order), 0);
+    set("components", [...form.components, {
+      id: cid(), name: "", type: "trainer",
+      image: "", tag: "", gpuType: "A100", gpuCount: "2", mem: "64GB",
+      params: "", order: maxOrder + 1
+    }]);
+  };
+
+  const deleteComponent = (idx) => {
+    const comp = form.components[idx];
+    const newComps = form.components.filter((_, i) => i !== idx)
+      .map((c, i) => ({ ...c, order: i + 1 }));
+    set("components", newComps);
+    setWorkflow(wf => wf.filter(e => e.from !== comp.id && e.to !== comp.id));
+  };
+
+  const handleTabSwitch = (tab) => {
+    setActiveTab(tab);
+    if (tab === "workflow" && workflow.length === 0 && !autoEdgesDone && form.components.length > 1) {
+      const sorted = [...form.components].sort((a, b) => a.order - b.order);
+      const autoEdges = [];
+      for (let i = 0; i < sorted.length - 1; i++) {
+        autoEdges.push({ from: sorted[i].id, to: sorted[i + 1].id });
+      }
+      setWorkflow(autoEdges);
+      setAutoEdgesDone(true);
+    }
+  };
+
+  const addEdge = () => {
+    setEdgeError("");
+    if (!edgeFrom || !edgeTo) return;
+    if (edgeFrom === edgeTo) { setEdgeError("자기 자신으로의 연결은 허용되지 않습니다"); return; }
+    if (workflow.some(e => e.from === edgeFrom && e.to === edgeTo)) { setEdgeError("이미 존재하는 연결입니다"); return; }
+    if (wouldCreateCycle(workflow, edgeFrom, edgeTo)) { setEdgeError("순환 참조가 감지되었습니다"); return; }
+    setWorkflow(wf => [...wf, { from: edgeFrom, to: edgeTo }]);
+    setEdgeFrom("");
+    setEdgeTo("");
+  };
+
+  const swapOrder = (idx, dir) => {
+    const sorted = [...form.components].sort((a, b) => a.order - b.order);
+    const targetIdx = dir === "up" ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= sorted.length) return;
+    const tmpOrder = sorted[idx].order;
+    const newComps = form.components.map(c => {
+      if (c.id === sorted[idx].id) return { ...c, order: sorted[targetIdx].order };
+      if (c.id === sorted[targetIdx].id) return { ...c, order: tmpOrder };
+      return c;
+    });
+    set("components", newComps);
+  };
 
   const generate = () => {
     const specName = form.name || "MyPipeline-v1";
     const specObj = {
       pipeline_id: "PL-" + Math.random().toString(36).substr(2, 6).toUpperCase(),
-      name: specName, version: "1.0.0",
-      image: { registry: form.image || "registry.avatar.io/my-image", tag: form.tag || "latest" },
+      name: specName, version: form.version || "1.0.0",
       env_vars: Object.fromEntries(form.envVars.filter(e => e.key).map(e => [e.key, e.value])),
-      components: form.components.map((c, i) => ({ order: i+1, name: c.name || `component_${i+1}`, type: c.type, params: c.params ? (() => { try { return JSON.parse(c.params); } catch { return c.params; } })() : {} })),
-      resources: { gpu_type: form.gpuType, gpu_count: parseInt(form.gpuCount)||2, memory: form.mem },
+      components: form.components.map(c => ({
+        order: c.order,
+        name: c.name || `component_${c.order}`,
+        type: c.type,
+        image: { registry: c.image || "registry.avatar.io/default", tag: c.tag || "latest" },
+        resources: { gpu_type: c.gpuType, gpu_count: parseInt(c.gpuCount) || 2, memory: c.mem || "64GB" },
+        params: parseJSON(c.params)
+      })),
+      workflow: workflow.map(e => ({ from: e.from, to: e.to })),
       storage: { type: "distributed", path: "/training-data/" + specName.toLowerCase() },
       created_at: new Date().toISOString()
     };
     setGenerated(specObj);
     addSpec({
-      id: "SP-" + Math.random().toString(36).substr(2,4).toUpperCase(),
-      name: specName, version: "1.0.0",
-      image: (form.image||"registry.avatar.io/my-image") + ":" + (form.tag||"latest"),
+      id: "SP-" + Math.random().toString(36).substr(2, 4).toUpperCase(),
+      name: specName, version: form.version || "1.0.0",
       status: "ready", created: now().split(" ")[0],
-      components: form.components.length,
-      gpu: form.gpuType + " x " + (form.gpuCount||"2"), mem: form.mem || "64GB"
+      components: form.components.map(c => ({
+        id: c.id, name: c.name || `component_${c.order}`, type: c.type,
+        image: (c.image || "registry.avatar.io/default") + ":" + (c.tag || "latest"),
+        tag: c.tag || "latest",
+        gpu_type: c.gpuType, gpu_count: parseInt(c.gpuCount) || 2,
+        mem: c.mem || "64GB", params: parseJSON(c.params), order: c.order
+      })),
+      workflow: [...workflow]
     });
     flash("스펙 파일이 생성되었습니다.");
   };
 
+  const compNameMap = {};
+  form.components.forEach(c => { compNameMap[c.id] = c.name || `component_${c.order}`; });
+
+  const typeBadgeColors = { trainer: ["#DBEAFE", "#1E40AF"], data_loader: ["#DCFCE7", "#166534"], preprocessor: ["#FEF3C7", "#92400E"], evaluator: ["#F3E8FF", "#6B21A8"] };
+  const typeLabels = { trainer: "Trainer", data_loader: "Data Loader", preprocessor: "Preprocessor", evaluator: "Evaluator" };
+
+  const sortedComps = [...form.components].sort((a, b) => a.order - b.order);
+
+  // Components with no edges at all
+  const connectedIds = new Set();
+  workflow.forEach(e => { connectedIds.add(e.from); connectedIds.add(e.to); });
+  const disconnected = form.components.filter(c => !connectedIds.has(c.id));
+
   return (
     <div>
-      <Title sub="컨테이너 이미지, 환경 변수, 컴포넌트 스펙을 입력하면 스펙 파일(JSON)이 생성됩니다.">Builder — 파이프라인 정의</Title>
-      {!generated ? <>
-        <Card style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>기본 정보</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-            <InputField label="파이프라인 이름" value={form.name} onChange={e=>set("name",e.target.value)} placeholder="MyPipeline-v1" />
-            <InputField label="이미지 주소" value={form.image} onChange={e=>set("image",e.target.value)} placeholder="registry.avatar.io/my-image" mono />
-            <InputField label="태그" value={form.tag} onChange={e=>set("tag",e.target.value)} placeholder="latest" mono />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-            <InputField label="GPU 유형" value={form.gpuType} onChange={e=>set("gpuType",e.target.value)} placeholder="A100" />
-            <InputField label="GPU 수" value={form.gpuCount} onChange={e=>set("gpuCount",e.target.value)} placeholder="2" />
-            <InputField label="메모리" value={form.mem} onChange={e=>set("mem",e.target.value)} placeholder="64GB" />
-          </div>
-        </Card>
-        <Card style={{ marginBottom: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>환경 변수</div>
-            <Btn sz="sm" onClick={() => set("envVars",[...form.envVars,{key:"",value:""}])}>+ 추가</Btn>
-          </div>
-          {form.envVars.map((env, i) => (
-            <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-              <input value={env.key} onChange={e => set("envVars",form.envVars.map((x,j)=>j===i?{...x,key:e.target.value}:x))} placeholder="KEY" style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, fontFamily: "'JetBrains Mono',monospace", outline: "none" }} />
-              <input value={env.value} onChange={e => set("envVars",form.envVars.map((x,j)=>j===i?{...x,value:e.target.value}:x))} placeholder="VALUE" style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, fontFamily: "'JetBrains Mono',monospace", outline: "none" }} />
-              <button onClick={() => set("envVars",form.envVars.filter((_,j)=>j!==i))} style={{ padding: 6, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={14} c="#94A3B8" /></button>
-            </div>
-          ))}
-        </Card>
-        <Card style={{ marginBottom: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>컴포넌트 스펙</div>
-            <Btn sz="sm" onClick={() => set("components",[...form.components,{name:"",type:"trainer",params:""}])}>+ 컴포넌트</Btn>
-          </div>
-          {form.components.map((c, i) => (
-            <div key={i} style={{ padding: 14, border: "1px solid #E2E8F0", borderRadius: 10, marginBottom: 8, background: "#FAFBFC" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#64748B" }}>컴포넌트 #{i+1}</span>
-                <button onClick={() => set("components",form.components.filter((_,j)=>j!==i))} style={{ padding: 2, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={14} c="#94A3B8" /></button>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                <input value={c.name} onChange={e => set("components",form.components.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="이름" style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none" }} />
-                <select value={c.type} onChange={e => set("components",form.components.map((x,j)=>j===i?{...x,type:e.target.value}:x))} style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", background: "#fff" }}>
-                  <option value="trainer">Trainer</option><option value="data_loader">Data Loader</option><option value="preprocessor">Preprocessor</option><option value="evaluator">Evaluator</option>
-                </select>
-              </div>
-              <textarea value={c.params} onChange={e => set("components",form.components.map((x,j)=>j===i?{...x,params:e.target.value}:x))} placeholder='파라미터 JSON: {"lr": 0.001}' rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
-            </div>
-          ))}
-        </Card>
-        <Btn v="primary" sz="lg" onClick={generate}>스펙 파일 생성</Btn>
-      </> : (
+      <Title sub="컴포넌트를 정의하고 워크플로우를 구성하여 파이프라인 스펙 파일(JSON)을 생성합니다.">Builder — 파이프라인 정의</Title>
+
+      {generated ? (
         <Card>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -554,12 +809,216 @@ function BuilderPage({ flash, addSpec }) {
           <pre style={{ background: "#0F172A", borderRadius: 10, padding: 18, fontSize: 12, fontFamily: "'JetBrains Mono',monospace", overflow: "auto", lineHeight: 1.7, color: "#E2E8F0", margin: 0 }}>{JSON.stringify(generated, null, 2)}</pre>
           <p style={{ margin: "14px 0 0", fontSize: 12, color: "#64748B" }}>→ 테스트 실행 또는 실행 요청 페이지에서 이 스펙 파일을 선택할 수 있습니다.</p>
         </Card>
+      ) : (
+        <>
+          {/* Tab bar */}
+          <div style={{ display: "flex", background: "#F1F5F9", borderRadius: 10, padding: 3, gap: 2, marginBottom: 20, width: "fit-content" }}>
+            {[["components", "컴포넌트 관리"], ["workflow", "워크플로우 구성"]].map(([key, label]) => (
+              <button key={key} onClick={() => handleTabSwitch(key)} style={{
+                padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
+                fontSize: 13, fontWeight: activeTab === key ? 600 : 400,
+                background: activeTab === key ? "#0F172A" : "transparent",
+                color: activeTab === key ? "#fff" : "#64748B",
+                transition: "all .15s", fontFamily: "inherit"
+              }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* TAB 1: Component Management */}
+          {activeTab === "components" && (
+            <>
+              {/* 기본 정보 */}
+              <Card style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>기본 정보</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <InputField label="파이프라인 이름" value={form.name} onChange={e => set("name", e.target.value)} placeholder="MyPipeline-v1" />
+                  <InputField label="버전" value={form.version} onChange={e => set("version", e.target.value)} placeholder="1.0.0" />
+                </div>
+              </Card>
+
+              {/* 환경 변수 */}
+              <Card style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>환경 변수</div>
+                  <Btn sz="sm" onClick={() => set("envVars", [...form.envVars, { key: "", value: "" }])}>+ 추가</Btn>
+                </div>
+                {form.envVars.map((env, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                    <input value={env.key} onChange={e => set("envVars", form.envVars.map((x, j) => j === i ? { ...x, key: e.target.value } : x))} placeholder="KEY" style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, fontFamily: "'JetBrains Mono',monospace", outline: "none" }} />
+                    <input value={env.value} onChange={e => set("envVars", form.envVars.map((x, j) => j === i ? { ...x, value: e.target.value } : x))} placeholder="VALUE" style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, fontFamily: "'JetBrains Mono',monospace", outline: "none" }} />
+                    <button onClick={() => set("envVars", form.envVars.filter((_, j) => j !== i))} style={{ padding: 6, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={14} c="#94A3B8" /></button>
+                  </div>
+                ))}
+              </Card>
+
+              {/* 컴포넌트 */}
+              <Card style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>컴포넌트 ({form.components.length})</div>
+                  <Btn sz="sm" onClick={addComponent}>컴포넌트 추가</Btn>
+                </div>
+                {form.components.map((c, i) => {
+                  const [tbBg, tbFg] = typeBadgeColors[c.type] || ["#F3F4F6", "#374151"];
+                  const gpuNum = parseInt(c.gpuCount) || 0;
+                  const memNum = parseInt(c.mem) || 0;
+                  const overThreshold = gpuNum >= THRESHOLD.gpu || memNum >= THRESHOLD.mem;
+                  return (
+                    <div key={c.id} style={{ padding: 16, border: "1px solid #E2E8F0", borderRadius: 10, marginBottom: 10, background: "#FAFBFC" }}>
+                      {/* Header */}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>컴포넌트 #{c.order}: {c.name || "unnamed"}</span>
+                          <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 600, background: tbBg, color: tbFg }}>{typeLabels[c.type] || c.type}</span>
+                          <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 600, background: overThreshold ? "#FEF3C7" : "#DCFCE7", color: overThreshold ? "#92400E" : "#166534" }}>
+                            {overThreshold ? "임계치 초과" : "임계치 미만"}
+                          </span>
+                        </div>
+                        <button onClick={() => deleteComponent(i)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={15} c="#94A3B8" /></button>
+                      </div>
+                      {/* Row 1: name, type, order */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                        <InputField label="이름" value={c.name} onChange={e => setComp(i, "name", e.target.value)} placeholder="component-name" />
+                        <div>
+                          <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 5 }}>유형</label>
+                          <select value={c.type} onChange={e => setComp(i, "type", e.target.value)} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", background: "#fff", color: "#0F172A", boxSizing: "border-box" }}>
+                            <option value="trainer">Trainer</option>
+                            <option value="data_loader">Data Loader</option>
+                            <option value="preprocessor">Preprocessor</option>
+                            <option value="evaluator">Evaluator</option>
+                          </select>
+                        </div>
+                        <InputField label="순서" value={String(c.order)} disabled />
+                      </div>
+                      {/* Row 2: image, tag */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                        <InputField label="Docker 이미지 주소" value={c.image} onChange={e => setComp(i, "image", e.target.value)} placeholder="registry.avatar.io/my-image" mono />
+                        <InputField label="태그" value={c.tag} onChange={e => setComp(i, "tag", e.target.value)} placeholder="latest" mono />
+                      </div>
+                      {/* Row 3: gpu type, gpu count, mem */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                        <InputField label="GPU 유형" value={c.gpuType} onChange={e => setComp(i, "gpuType", e.target.value)} placeholder="A100" />
+                        <InputField label="GPU 수" value={c.gpuCount} onChange={e => setComp(i, "gpuCount", e.target.value)} placeholder="2" />
+                        <InputField label="메모리" value={c.mem} onChange={e => setComp(i, "mem", e.target.value)} placeholder="64GB" />
+                      </div>
+                      {/* Row 4: params */}
+                      <div>
+                        <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 5 }}>파라미터 JSON</label>
+                        <textarea value={c.params} onChange={e => setComp(i, "params", e.target.value)} placeholder='{"lr": 0.001, "epochs": 30}' rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </Card>
+
+              <Btn v="primary" sz="lg" onClick={generate}>스펙 파일 생성</Btn>
+            </>
+          )}
+
+          {/* TAB 2: Workflow Composition */}
+          {activeTab === "workflow" && (
+            <>
+              {/* 실행 순서 */}
+              <Card style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>실행 순서</div>
+                {sortedComps.length === 0 ? (
+                  <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 16 }}>컴포넌트를 먼저 추가하세요.</p>
+                ) : (
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr><TH w={50}>순서</TH><TH>컴포넌트</TH><TH>유형</TH><TH>이미지</TH><TH>자원</TH><TH w={80} a="center">이동</TH></tr></thead>
+                    <tbody>
+                      {sortedComps.map((c, idx) => {
+                        const [tbBg, tbFg] = typeBadgeColors[c.type] || ["#F3F4F6", "#374151"];
+                        const imgDisplay = (c.image || "N/A").length > 30 ? (c.image || "N/A").slice(0, 30) + "..." : (c.image || "N/A");
+                        return (
+                          <tr key={c.id}>
+                            <TD a="center" b>{c.order}</TD>
+                            <TD b>{c.name || `component_${c.order}`}</TD>
+                            <TD><span style={{ display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 600, background: tbBg, color: tbFg }}>{typeLabels[c.type] || c.type}</span></TD>
+                            <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#64748B" }}>{imgDisplay}</span></TD>
+                            <TD>{c.gpuType} x {c.gpuCount}, {c.mem}</TD>
+                            <TD a="center">
+                              <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
+                                <button onClick={() => swapOrder(idx, "up")} disabled={idx === 0} style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: idx === 0 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: idx === 0 ? 0.3 : 1 }}><I n="up" s={14} c="#334155" /></button>
+                                <button onClick={() => swapOrder(idx, "down")} disabled={idx === sortedComps.length - 1} style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: idx === sortedComps.length - 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: idx === sortedComps.length - 1 ? 0.3 : 1 }}><I n="down" s={14} c="#334155" /></button>
+                              </div>
+                            </TD>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </Card>
+
+              {/* 의존성 연결 */}
+              <Card style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>의존성 연결</div>
+                {/* Add edge row */}
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 4 }}>From</label>
+                    <select value={edgeFrom} onChange={e => { setEdgeFrom(e.target.value); setEdgeError(""); }} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", background: "#fff", boxSizing: "border-box" }}>
+                      <option value="">선택...</option>
+                      {form.components.map(c => <option key={c.id} value={c.id}>{c.name || `component_${c.order}`}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 4 }}>To</label>
+                    <select value={edgeTo} onChange={e => { setEdgeTo(e.target.value); setEdgeError(""); }} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", background: "#fff", boxSizing: "border-box" }}>
+                      <option value="">선택...</option>
+                      {form.components.map(c => <option key={c.id} value={c.id}>{c.name || `component_${c.order}`}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ paddingTop: 18 }}>
+                    <Btn sz="sm" v="primary" onClick={addEdge}>추가</Btn>
+                  </div>
+                </div>
+                {edgeError && <div style={{ fontSize: 12, color: "#B91C1C", marginBottom: 8 }}>{edgeError}</div>}
+
+                {/* Edge list */}
+                {workflow.length === 0 ? (
+                  <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 12, padding: 10 }}>연결이 없습니다.</p>
+                ) : (
+                  <div style={{ marginTop: 8 }}>
+                    {workflow.map((e, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", borderRadius: 6, background: "#F8FAFC", border: "1px solid #E2E8F0", marginBottom: 4 }}>
+                        <span style={{ fontSize: 13, color: "#334155" }}>
+                          <span style={{ fontWeight: 600 }}>{compNameMap[e.from] || e.from}</span>
+                          <span style={{ color: "#94A3B8", margin: "0 8px" }}> → </span>
+                          <span style={{ fontWeight: 600 }}>{compNameMap[e.to] || e.to}</span>
+                        </span>
+                        <button onClick={() => setWorkflow(wf => wf.filter((_, j) => j !== i))} style={{ padding: 2, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={14} c="#94A3B8" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Warning for disconnected components */}
+                {disconnected.length > 0 && workflow.length > 0 && (
+                  <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 6, background: "#FEF3C7", border: "1px solid #FDE68A", fontSize: 12, color: "#92400E" }}>
+                    연결되지 않은 컴포넌트: {disconnected.map(c => c.name || `component_${c.order}`).join(", ")}
+                  </div>
+                )}
+              </Card>
+
+              {/* 워크플로우 다이어그램 */}
+              <Card style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>워크플로우 다이어그램</div>
+                <WorkflowDiagram components={form.components} workflow={workflow} />
+              </Card>
+
+              <Btn v="primary" sz="lg" onClick={generate}>스펙 파일 생성</Btn>
+            </>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-/* ═══════════════════════ TEST RUN PAGE (v1.2 new) ═══════════════════════ */
+/* ═══════════════════════ TEST RUN PAGE ═══════════════════════ */
 function TestRunPage({ specs, testRuns, runTest, setPage }) {
   const [selSpec, setSelSpec] = useState(null);
   
@@ -575,7 +1034,7 @@ function TestRunPage({ specs, testRuns, runTest, setPage }) {
             <div key={s.id} onClick={() => setSelSpec(s.id)} style={{ padding: "14px 16px", borderRadius: 10, border: `2px solid ${selSpec === s.id ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", background: selSpec === s.id ? "#F8FAFC" : "#fff", transition: "all .15s" }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>{s.name} <span style={{ fontWeight: 400, color: "#94A3B8", fontSize: 12 }}>v{s.version}</span></div>
-                <div style={{ fontSize: 12, color: "#64748B", marginTop: 3 }}>{s.image} · 컴포넌트 {s.components}개 · {s.gpu}, {s.mem}</div>
+                <div style={{ fontSize: 12, color: "#64748B", marginTop: 3 }}>{getSpecImage(s)} · 컴포넌트 {getComponentCount(s)}개 · {getTotalGpuSummary(s)}, {getTotalMem(s)}</div>
               </div>
               <Badge v="ready">준비됨</Badge>
             </div>
@@ -623,7 +1082,7 @@ function TestRunPage({ specs, testRuns, runTest, setPage }) {
   );
 }
 
-/* ═══════════════════════ REQUEST PAGE (v1.2 updated) ═══════════════════════ */
+/* ═══════════════════════ REQUEST PAGE ═══════════════════════ */
 function RequestPage({ specs, testRuns, addWorkload }) {
   const [sel, setSel] = useState(null);
   const [done, setDone] = useState(false);
@@ -674,7 +1133,7 @@ function RequestPage({ specs, testRuns, addWorkload }) {
           <div key={s.id} onClick={() => setSel(s.id)} style={{ padding: "12px 16px", borderRadius: 10, border: `2px solid ${sel === s.id ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, background: sel === s.id ? "#F8FAFC" : "#fff", transition: "all .15s" }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 600 }}>{s.name} <span style={{ fontWeight: 400, color: "#94A3B8", fontSize: 12 }}>v{s.version}</span></div>
-              <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>{s.image} · 컴포넌트 {s.components}개 · {s.gpu}</div>
+              <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>{getSpecImage(s)} · 컴포넌트 {getComponentCount(s)}개 · {getTotalGpuSummary(s)}</div>
             </div>
             <Badge v="ready">준비됨</Badge>
           </div>
@@ -748,7 +1207,7 @@ function RequestPage({ specs, testRuns, addWorkload }) {
   );
 }
 
-/* ═══════════════════════ APPROVAL PAGE (v1.2 updated) ═══════════════════════ */
+/* ═══════════════════════ APPROVAL PAGE ═══════════════════════ */
 function ApprovalPage({ pending, approveWorkload, rejectWorkload, testRuns, setModal }) {
   return (
     <div>
