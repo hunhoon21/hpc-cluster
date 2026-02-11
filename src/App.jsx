@@ -1,53 +1,74 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 /* ═══════════════════════════════════════════════════════
-   AVATAR OnE  v1.3  —  ML Training Platform Demo
+   AVATAR OnE  v1.4  —  ML/RL Training Platform Demo
 
-   v1.3 Changes:
-   · Per-component Docker images and resource allocation
-   · Two-tab Builder: Component Management + Workflow Composition
-   · SVG workflow diagram with topological layout
-   · Approval threshold based on per-component max values
-   · Cycle detection for workflow dependencies
+   v1.4 Changes:
+   · Pipeline→Avatar App terminology transition
+   · 3-tier hierarchy: App → Task → Component
+   · Component Global Library (system-wide reusable catalog)
+   · Trainer screen (separate from Builder for RL training)
+   · Mandatory minimum execution test for all approval-requiring workloads
+   · App Import (BL-12)
 
-   Flow: Builder → Test Run → Execution Request → Approval → Run → Model
+   Flow: Builder → Trainer → Test/Approval → Queue → Run → Model
    ═══════════════════════════════════════════════════════ */
 
 const uid = () => "WL-" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 3).toUpperCase();
 const mid = () => "MD-" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 3).toUpperCase();
-const rid = () => "TR-" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 3).toUpperCase();
+const rid = () => "RUN-" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 3).toUpperCase();
 const cid = () => "C-" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 3).toUpperCase();
+const tid = () => "TASK-" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 3).toUpperCase();
 const now = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0") + " " + String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0"); };
 
 // Resource threshold — requests above this require admin approval
 const THRESHOLD = { gpu: 4, mem: 128 };
 
 const INIT_SPECS = [
-  { id: "SP-001", name: "LLM-FineTune-v3", version: "1.2.0", status: "ready", created: "2025-02-01",
-    components: [
-      { id: "C-001", name: "data-loader", type: "data_loader", image: "registry.avatar.io/data-loader:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "32GB", params: {}, order: 1 },
-      { id: "C-002", name: "preprocessor", type: "preprocessor", image: "registry.avatar.io/preprocessor:2.1", tag: "2.1", gpu_type: "A100", gpu_count: 2, mem: "64GB", params: { batch_size: 128 }, order: 2 },
-      { id: "C-003", name: "trainer", type: "trainer", image: "registry.avatar.io/llm-trainer:3.1", tag: "3.1", gpu_type: "A100", gpu_count: 4, mem: "128GB", params: { lr: 0.001, epochs: 30 }, order: 3 },
-      { id: "C-004", name: "evaluator", type: "evaluator", image: "registry.avatar.io/evaluator:1.5", tag: "1.5", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 4 },
+  { id: "APP-001", name: "LLM-FineTune-v3", version: "1.2.0", status: "ready", created: "2025-02-01",
+    tasks: [
+      { id: "TASK-001", name: "training-pipeline", imported_from: null,
+        components: [
+          { id: "C-001", name: "data-loader", image: "registry.avatar.io/data-loader:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "32GB", params: {}, order: 1 },
+          { id: "C-002", name: "preprocessor", image: "registry.avatar.io/preprocessor:2.1", tag: "2.1", gpu_type: "A100", gpu_count: 2, mem: "64GB", params: { batch_size: 128 }, order: 2 },
+          { id: "C-003", name: "trainer", image: "registry.avatar.io/llm-trainer:3.1", tag: "3.1", gpu_type: "A100", gpu_count: 4, mem: "128GB", params: { lr: 0.001, epochs: 30 }, order: 3 },
+          { id: "C-004", name: "evaluator", image: "registry.avatar.io/evaluator:1.5", tag: "1.5", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 4 },
+        ],
+        workflow: [{ from: "C-001", to: "C-002" }, { from: "C-002", to: "C-003" }, { from: "C-003", to: "C-004" }]
+      }
     ],
-    workflow: [{ from: "C-001", to: "C-002" }, { from: "C-002", to: "C-003" }, { from: "C-003", to: "C-004" }]
+    imported_apps: []
   },
-  { id: "SP-002", name: "ResNet-Exp-42", version: "2.0.1", status: "ready", created: "2025-01-28",
-    components: [
-      { id: "C-005", name: "data-loader", type: "data_loader", image: "registry.avatar.io/cv-loader:1.2", tag: "1.2", gpu_type: "V100", gpu_count: 1, mem: "32GB", params: {}, order: 1 },
-      { id: "C-006", name: "trainer", type: "trainer", image: "registry.avatar.io/cv-resnet:2.0", tag: "2.0", gpu_type: "V100", gpu_count: 2, mem: "64GB", params: { lr: 0.01, epochs: 50 }, order: 2 },
-      { id: "C-007", name: "evaluator", type: "evaluator", image: "registry.avatar.io/cv-eval:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 3 },
+  { id: "APP-002", name: "ResNet-Exp-42", version: "2.0.1", status: "ready", created: "2025-01-28",
+    tasks: [
+      { id: "TASK-002", name: "cv-training", imported_from: null,
+        components: [
+          { id: "C-005", name: "data-loader", image: "registry.avatar.io/cv-loader:1.2", tag: "1.2", gpu_type: "V100", gpu_count: 1, mem: "32GB", params: {}, order: 1 },
+          { id: "C-006", name: "trainer", image: "registry.avatar.io/cv-resnet:2.0", tag: "2.0", gpu_type: "V100", gpu_count: 2, mem: "64GB", params: { lr: 0.01, epochs: 50 }, order: 2 },
+          { id: "C-007", name: "evaluator", image: "registry.avatar.io/cv-eval:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 3 },
+        ],
+        workflow: [{ from: "C-005", to: "C-006" }, { from: "C-006", to: "C-007" }]
+      }
     ],
-    workflow: [{ from: "C-005", to: "C-006" }, { from: "C-006", to: "C-007" }]
+    imported_apps: []
   },
+];
+
+const INIT_LIBRARY = [
+  { id: "CL-01", name: "env-simulator", image: "registry.avatar.io/env-sim:1.0", description: "RL 환경 시뮬레이터", version: "1.0", created: "2025-01-15" },
+  { id: "CL-02", name: "rl-agent", image: "registry.avatar.io/rl-agent:2.0", description: "강화학습 에이전트", version: "2.0", created: "2025-01-20" },
+  { id: "CL-03", name: "reward-calculator", image: "registry.avatar.io/reward-calc:1.0", description: "보상 함수 계산기", version: "1.0", created: "2025-01-22" },
+  { id: "CL-04", name: "data-loader", image: "registry.avatar.io/data-loader:1.0", description: "데이터 로더", version: "1.0", created: "2025-01-10" },
+  { id: "CL-05", name: "preprocessor", image: "registry.avatar.io/preprocessor:2.1", description: "데이터 전처리기", version: "2.1", created: "2025-01-12" },
+  { id: "CL-06", name: "evaluator", image: "registry.avatar.io/evaluator:1.5", description: "모델 평가기", version: "1.5", created: "2025-01-18" },
 ];
 
 const INIT_TEST_RUNS = [
-  { id: "TR-INIT01", specId: "SP-001", specName: "LLM-FineTune-v3", status: "passed", gpu: "A100 x 2", mem: "64GB", created: "2025-01-29 15:30", duration: "0.34s", log: "[OK] 이미지 로드 성공 (A100 x 2)\n[OK] 환경 변수 검증 완료\n[OK] 컴포넌트 초기화 성공\n[OK] 파이프라인 실행 완료 (0.34s)\nResult: PASS" },
+  { id: "RUN-INIT01", specId: "APP-001", specName: "LLM-FineTune-v3", status: "passed", gpu: "A100 x 2", mem: "64GB", created: "2025-01-29 15:30", duration: "0.34s", log: "[OK] 이미지 로드 성공 (A100 x 2)\n[OK] 환경 변수 검증 완료\n[OK] 컴포넌트 초기화 성공\n[OK] App 실행 완료 (0.34s)\nResult: PASS" },
 ];
 
 const INIT_WORKLOADS = [
-  { id: "WL-DEMO1", name: "BERT-Classifier", specId: "SP-001", requester: "정연구원", status: "completed", priority: "high", gpu: "A100 x 2", mem: "64GB", submitted: "2025-01-30 11:00", approved: "2025-01-30 12:00", testRunRef: "TR-INIT01", completedAt: "2025-01-31 09:15", needsApproval: true },
+  { id: "WL-DEMO1", name: "BERT-Classifier", specId: "APP-001", requester: "정연구원", status: "completed", priority: "high", gpu: "A100 x 2", mem: "64GB", submitted: "2025-01-30 11:00", approved: "2025-01-30 12:00", testRunRef: "RUN-INIT01", completedAt: "2025-01-31 09:15", needsApproval: true, loopTest: { status: "passed", episodes: 5, results: { successRate: "100%", avgDuration: "0.34s", log: "Run 1: SUCCESS (0.32s)\nRun 3: SUCCESS (0.35s)\nRun 5: SUCCESS (0.34s)" }, executedBy: "admin", executedAt: "2025-01-30 11:30" } },
 ];
 
 const INIT_MODELS = [
@@ -102,12 +123,15 @@ const Btn = ({ children, v = "default", sz = "md", onClick, disabled, icon, styl
 const TH = ({ children, w, a = "left" }) => <th style={{ padding: "10px 14px", fontSize: 11, fontWeight: 600, color: "#64748B", textAlign: a, borderBottom: "2px solid #E2E8F0", background: "#F8FAFC", width: w, letterSpacing: 0.4, textTransform: "uppercase", whiteSpace: "nowrap" }}>{children}</th>;
 const TD = ({ children, a = "left", b }) => <td style={{ padding: "12px 14px", fontSize: 13, textAlign: a, borderBottom: "1px solid #F1F5F9", fontWeight: b ? 600 : 400, color: b ? "#0F172A" : "#334155" }}>{children}</td>;
 
-const InputField = ({ label, value, onChange, placeholder, mono, disabled }) => (
-  <div>
-    <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 5 }}>{label}</label>
-    <input value={value} onChange={onChange} placeholder={placeholder} disabled={disabled} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, fontFamily: mono ? "'JetBrains Mono',monospace" : "inherit", outline: "none", boxSizing: "border-box", background: disabled ? "#F8FAFC" : "#fff", color: "#0F172A", transition: "border-color .15s" }} />
-  </div>
-);
+const InputField = ({ label, value, onChange, placeholder, mono, disabled }) => {
+  const id = "f-" + label.replace(/\s+/g, "-");
+  return (
+    <div>
+      <label htmlFor={id} style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 5 }}>{label}</label>
+      <input id={id} value={value} onChange={onChange} placeholder={placeholder || label} disabled={disabled} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, fontFamily: mono ? "'JetBrains Mono',monospace" : "inherit", outline: "none", boxSizing: "border-box", background: disabled ? "#F8FAFC" : "#fff", color: "#0F172A", transition: "border-color .15s" }} />
+    </div>
+  );
+};
 
 /* helper: parse gpu count from string like "A100 x 4" */
 const parseGpuCount = (gpuStr) => {
@@ -121,43 +145,45 @@ const exceedsThreshold = (gpuStr, memStr) => {
   return parseGpuCount(gpuStr) >= THRESHOLD.gpu || parseMemNum(memStr) >= THRESHOLD.mem;
 };
 
-/* ─── Compatibility Helpers (handle both old flat and new component-array specs) ─── */
-const getComponentCount = (spec) => Array.isArray(spec.components) ? spec.components.length : spec.components;
+/* ─── Helpers for 3-tier App→Task→Component structure ─── */
+const getAllComponents = (spec) => {
+  if (spec.tasks) return spec.tasks.flatMap(t => t.components || []);
+  if (Array.isArray(spec.components)) return spec.components;
+  return [];
+};
+
+const getComponentCount = (spec) => getAllComponents(spec).length;
+const getTaskCount = (spec) => (spec.tasks || []).length;
 
 const getMaxGpu = (spec) => {
-  if (!Array.isArray(spec.components)) return spec.gpu;
-  const maxComp = spec.components.reduce((max, c) =>
-    c.gpu_count > (max?.gpu_count || 0) ? c : max, null);
+  const comps = getAllComponents(spec);
+  if (comps.length === 0) return "N/A";
+  const maxComp = comps.reduce((max, c) => c.gpu_count > (max?.gpu_count || 0) ? c : max, null);
   return maxComp ? `${maxComp.gpu_type} x ${maxComp.gpu_count}` : "N/A";
 };
 
 const getMaxMem = (spec) => {
-  if (!Array.isArray(spec.components)) return spec.mem;
-  const maxMem = Math.max(...spec.components.map(c => parseInt(c.mem) || 0));
-  return `${maxMem}GB`;
+  const comps = getAllComponents(spec);
+  if (comps.length === 0) return "0GB";
+  return `${Math.max(...comps.map(c => parseInt(c.mem) || 0))}GB`;
 };
 
 const getTotalGpuSummary = (spec) => {
-  if (!Array.isArray(spec.components)) return spec.gpu;
   const totals = {};
-  spec.components.forEach(c => {
-    totals[c.gpu_type] = (totals[c.gpu_type] || 0) + c.gpu_count;
-  });
-  return Object.entries(totals).map(([t, n]) => `${t} x ${n}`).join(", ");
+  getAllComponents(spec).forEach(c => { totals[c.gpu_type] = (totals[c.gpu_type] || 0) + c.gpu_count; });
+  return Object.entries(totals).map(([t, n]) => `${t} x ${n}`).join(", ") || "N/A";
 };
 
 const getTotalMem = (spec) => {
-  if (!Array.isArray(spec.components)) return spec.mem;
-  const total = spec.components.reduce((sum, c) => sum + (parseInt(c.mem) || 0), 0);
+  const total = getAllComponents(spec).reduce((sum, c) => sum + (parseInt(c.mem) || 0), 0);
   return `${total}GB`;
 };
 
 const getSpecImage = (spec) => {
-  if (!Array.isArray(spec.components)) return spec.image;
-  if (spec.components.length === 0) return "N/A";
-  const first = spec.components[0];
-  const suffix = spec.components.length > 1 ? ` 외 ${spec.components.length - 1}개` : "";
-  return first.image + suffix;
+  const comps = getAllComponents(spec);
+  if (comps.length === 0) return "N/A";
+  const suffix = comps.length > 1 ? ` 외 ${comps.length - 1}개` : "";
+  return comps[0].image + suffix;
 };
 
 const wouldCreateCycle = (edges, fromId, toId) => {
@@ -174,10 +200,7 @@ const wouldCreateCycle = (edges, fromId, toId) => {
 };
 
 const exceedsThresholdSpec = (spec) => {
-  if (!Array.isArray(spec.components)) {
-    return exceedsThreshold(spec.gpu, spec.mem);
-  }
-  return spec.components.some(c =>
+  return getAllComponents(spec).some(c =>
     c.gpu_count >= THRESHOLD.gpu || (parseInt(c.mem) || 0) >= THRESHOLD.mem
   );
 };
@@ -192,6 +215,7 @@ export default function App() {
   const [testRuns, setTestRuns] = useState(INIT_TEST_RUNS);
   const [workloads, setWorkloads] = useState(INIT_WORKLOADS);
   const [models, setModels] = useState(INIT_MODELS);
+  const [library, setLibrary] = useState(INIT_LIBRARY);
 
   const flash = useCallback((m) => { setToast(m); setTimeout(() => setToast(null), 3500); }, []);
   useEffect(() => { setPage("home"); }, [mode]);
@@ -253,7 +277,7 @@ export default function App() {
     }
   }, [workloads, flash, processQueue]);
 
-  /* ─── Test Run (user-initiated, same as pipeline execution) ─── */
+  /* ─── Test Run (user-initiated, same as App execution) ─── */
   const runTest = useCallback((specId) => {
     const spec = specs.find(s => s.id === specId);
     if (!spec) return;
@@ -263,15 +287,15 @@ export default function App() {
     };
     setTestRuns(prev => [...prev, tr]);
     flash("테스트 실행을 시작합니다...");
-    
+
     setTimeout(() => {
       setTestRuns(prev => prev.map(t => t.id === tr.id ? {
         ...t, status: "passed", duration: (0.2 + Math.random() * 0.5).toFixed(2) + "s",
-        log: `[OK] 이미지 로드 성공 (${getMaxGpu(spec)})\n[OK] 환경 변수 검증 완료\n[OK] 컴포넌트 초기화 성공 (${getComponentCount(spec)}개)\n[OK] 파이프라인 실행 완료\nResult: PASS`
+        log: `[OK] 이미지 로드 성공 (${getMaxGpu(spec)})\n[OK] 환경 변수 검증 완료\n[OK] 컴포넌트 초기화 성공 (${getComponentCount(spec)}개)\n[OK] App 실행 완료\nResult: PASS`
       } : t));
       flash("✓ 테스트 실행 완료 — 결과를 확인하세요.");
     }, 2500);
-    
+
     return tr.id;
   }, [specs, flash]);
 
@@ -282,15 +306,36 @@ export default function App() {
       id: uid(), ...data,
       status: needs ? "pending" : "queued",
       needsApproval: needs,
-      submitted: now(), approved: null, completedAt: null
+      submitted: now(), approved: null, completedAt: null,
+      ...(needs ? { loopTest: { status: "pending", episodes: null, results: null, executedBy: null, executedAt: null } } : {})
     };
     setWorkloads(prev => [...prev, wl]);
-    
+
     if (needs) {
       flash("⚠ 자원 임계치 초과 — 관리자 승인이 필요합니다.");
     } else {
       flash("✓ 자원 임계치 미만 — 실행 대기열에 진입합니다.");
     }
+  }, [flash]);
+
+  /* ─── Loop Test (minimum execution test for approval) ─── */
+  const runLoopTest = useCallback((id) => {
+    setWorkloads(wl => wl.map(w => w.id === id ? { ...w, loopTest: { ...w.loopTest, status: "running" } } : w));
+    flash("최소 실행 테스트를 시작합니다...");
+    setTimeout(() => {
+      setWorkloads(wl => wl.map(w => {
+        if (w.id !== id) return w;
+        const isRL = w.isTrainingRequest;
+        return { ...w, loopTest: {
+          status: "passed", episodes: isRL ? 10 : 5,
+          results: isRL
+            ? { convergence: true, avgReward: 85.3, finalReward: 92.1, log: "Episode 1: reward=72.1\nEpisode 5: reward=85.3\nEpisode 10: reward=92.1\nConvergence: YES" }
+            : { successRate: "100%", avgDuration: "0.34s", log: "Run 1: SUCCESS (0.32s)\nRun 3: SUCCESS (0.35s)\nRun 5: SUCCESS (0.34s)" },
+          executedBy: "admin", executedAt: now()
+        }};
+      }));
+      flash("✓ 최소 실행 테스트 완료");
+    }, 2000);
   }, [flash]);
 
   /* ─── Admin Approval ─── */
@@ -314,8 +359,9 @@ export default function App() {
   const userNav = [
     { id: "home", l: "홈", ic: "home" },
     { id: "builder", l: "Builder", ic: "builder" },
+    { id: "library", l: "컴포넌트 라이브러리", ic: "file" },
+    { id: "trainer", l: "Trainer", ic: "play" },
     { id: "test", l: "테스트 실행", ic: "test" },
-    { id: "request", l: "실행 요청", ic: "play" },
     { id: "workloads", l: "워크로드 목록", ic: "file" },
     { id: "models", l: "결과 모델", ic: "model" },
   ];
@@ -340,7 +386,7 @@ export default function App() {
             <span style={{ color: "#fff", fontSize: 14, fontWeight: 800, letterSpacing: -0.5 }}>A</span>
           </div>
           <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>AVATAR OnE</span>
-          <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", marginLeft: 2 }}>v1.3</span>
+          <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", marginLeft: 2 }}>v1.4</span>
         </div>
         <div style={{ flex: 1 }} />
         
@@ -398,10 +444,11 @@ export default function App() {
         {/* ─── Main Content ─── */}
         <main style={{ flex: 1, padding: 32, maxWidth: 1120, overflowY: "auto" }}>
           {page === "home" && <HomePage {...{ mode, setPage, workloads, models, specs, testRuns, pending, running, queued }} />}
-          {page === "builder" && <BuilderPage {...{ flash, addSpec }} />}
+          {page === "builder" && <BuilderPage {...{ flash, addSpec, specs, library }} />}
+          {page === "library" && <ComponentLibraryPage {...{ library, setLibrary, flash }} />}
+          {page === "trainer" && <TrainerPage {...{ specs, addWorkload, flash }} />}
           {page === "test" && <TestRunPage {...{ specs, testRuns, runTest, setPage }} />}
-          {page === "request" && <RequestPage {...{ specs, testRuns, addWorkload }} />}
-          {page === "approval" && <ApprovalPage {...{ pending, approveWorkload, rejectWorkload, testRuns, setModal }} />}
+          {page === "approval" && <ApprovalPage {...{ pending, approveWorkload, rejectWorkload, runLoopTest, testRuns, setModal }} />}
           {page === "queue" && <QueuePage {...{ workloads, setWorkloads, running, queued, flash }} />}
           {page === "resources" && <ResourcesPage workloads={workloads} />}
           {page === "workloads" && <WorkloadsPage workloads={workloads} />}
@@ -460,10 +507,10 @@ function HomePage({ mode, setPage, workloads, models, specs, testRuns, pending, 
     <div>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, letterSpacing: -0.5 }}>
-          {mode === "user" ? "ML 학습 파이프라인" : "플랫폼 관리"} 
+          {mode === "user" ? "Avatar App 워크스페이스" : "플랫폼 관리"}
         </h1>
         <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748B" }}>
-          {mode === "user" ? "파이프라인을 정의하고, 테스트하고, 워크로드를 실행하세요." : "워크로드 승인과 클러스터 리소스를 관리하세요."}
+          {mode === "user" ? "App을 개발하고, 학습을 요청하고, 워크로드를 실행하세요." : "워크로드 승인과 클러스터 리소스를 관리하세요."}
         </p>
       </div>
       
@@ -481,16 +528,16 @@ function HomePage({ mode, setPage, workloads, models, specs, testRuns, pending, 
         ))}
       </div>
 
-      {/* v1.3 Workflow guide */}
+      {/* v1.4 Workflow guide */}
       <Card style={{ marginBottom: 20, background: "linear-gradient(135deg, #F8FAFC, #F1F5F9)", border: "1px solid #E2E8F0" }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>v1.3 워크플로우</div>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>v1.4 워크플로우</div>
         <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
           {[
-            { step: "1", title: "Builder", desc: "컴포넌트 정의\n워크플로우 구성", color: "#475569" },
-            { step: "2", title: "테스트 실행", desc: "파이프라인 검증\n(선택 사항)", color: "#7E22CE" },
-            { step: "3", title: "실행 요청", desc: "자원 요청 + 테스트\nrun 참조(선택)", color: "#1E40AF" },
-            { step: "4", title: "승인", desc: "임계치 이상 → 관리자\n임계치 미만 → 자동승인", color: "#B45309" },
-            { step: "5", title: "실행 · 완료", desc: "학습 파이프라인\n실행 → 모델 생성", color: "#047857" },
+            { step: "1", title: "Builder", desc: "App 개발\n(App→Task→Component)", color: "#475569" },
+            { step: "2", title: "Trainer", desc: "학습 요청\n(자원·파라미터 설정)", color: "#7E22CE" },
+            { step: "3", title: "테스트/승인", desc: "최소 실행 테스트\n+ 관리자 승인", color: "#1E40AF" },
+            { step: "4", title: "실행 대기열", desc: "우선순위 관리", color: "#B45309" },
+            { step: "5", title: "실행 · 완료", desc: "학습 실행\n→ 모델 생성", color: "#047857" },
           ].map((s, i) => (
             <div key={i} style={{ flex: 1, display: "flex", alignItems: "center" }}>
               <div style={{ textAlign: "center", flex: 1 }}>
@@ -521,9 +568,9 @@ function HomePage({ mode, setPage, workloads, models, specs, testRuns, pending, 
         <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
           {mode === "user" ? (
             <>
-              <Btn v="primary" icon="builder" onClick={() => setPage("builder")}>파이프라인 정의</Btn>
+              <Btn v="primary" icon="builder" onClick={() => setPage("builder")}>App 개발</Btn>
+              <Btn icon="play" onClick={() => setPage("trainer")}>Trainer</Btn>
               <Btn icon="test" onClick={() => setPage("test")}>테스트 실행</Btn>
-              <Btn icon="play" onClick={() => setPage("request")}>실행 요청</Btn>
             </>
           ) : (
             <>
@@ -609,10 +656,6 @@ function WorkflowDiagram({ components, workflow }) {
   const nodeW = 140;
   const nodeH = 56;
 
-  const fillByType = { trainer: "#DBEAFE", data_loader: "#DCFCE7", preprocessor: "#FEF3C7", evaluator: "#F3E8FF" };
-  const borderByType = { trainer: "#1E40AF", data_loader: "#166534", preprocessor: "#92400E", evaluator: "#6B21A8" };
-  const typeLabel = { trainer: "Trainer", data_loader: "Data Loader", preprocessor: "Preprocessor", evaluator: "Evaluator" };
-
   return (
     <div style={{ overflowX: "auto" }}>
       <svg width={svgW} height={svgH} style={{ display: "block" }}>
@@ -637,22 +680,16 @@ function WorkflowDiagram({ components, workflow }) {
         {components.map(c => {
           const pos = positions[c.id];
           if (!pos) return null;
-          const fill = fillByType[c.type] || "#F3F4F6";
-          const border = borderByType[c.type] || "#374151";
-          const res = `${c.gpuType} x ${c.gpuCount}, ${c.mem}`;
+          const res = `${c.gpu_type || c.gpuType || ""} x ${c.gpu_count || c.gpuCount || ""}, ${c.mem}`;
           return (
             <g key={c.id}>
               <rect x={pos.x} y={pos.y} width={nodeW} height={nodeH} rx={10}
-                fill={fill} stroke={border} strokeWidth={1.5} />
-              <text x={pos.x + nodeW / 2} y={pos.y + 18} textAnchor="middle"
+                fill="#DBEAFE" stroke="#1E40AF" strokeWidth={1.5} />
+              <text x={pos.x + nodeW / 2} y={pos.y + 22} textAnchor="middle"
                 fontSize={12} fontWeight="bold" fill="#0F172A">
                 {(c.name || "unnamed").slice(0, 16)}
               </text>
-              <text x={pos.x + nodeW / 2} y={pos.y + 32} textAnchor="middle"
-                fontSize={9} fill="#64748B">
-                {typeLabel[c.type] || c.type}
-              </text>
-              <text x={pos.x + nodeW / 2} y={pos.y + 46} textAnchor="middle"
+              <text x={pos.x + nodeW / 2} y={pos.y + 42} textAnchor="middle"
                 fontSize={9} fill="#64748B">
                 {res}
               </text>
@@ -665,156 +702,140 @@ function WorkflowDiagram({ components, workflow }) {
 }
 
 /* ═══════════════════════════ BUILDER ═══════════════════════════ */
-function BuilderPage({ flash, addSpec }) {
-  const [activeTab, setActiveTab] = useState("components");
+function BuilderPage({ flash, addSpec, specs, library }) {
+  const [activeTab, setActiveTab] = useState("app");
+  const [selTaskIdx, setSelTaskIdx] = useState(0);
   const [form, setForm] = useState({
     name: "", version: "1.0.0",
     envVars: [{ key: "", value: "" }],
-    components: [{
-      id: cid(), name: "", type: "trainer",
-      image: "", tag: "", gpuType: "A100", gpuCount: "2", mem: "64GB",
-      params: "", order: 1
-    }]
+    tasks: [{ id: tid(), name: "default-task", imported_from: null, components: [], workflow: [] }]
   });
-  const [workflow, setWorkflow] = useState([]);
   const [generated, setGenerated] = useState(null);
-  const [edgeError, setEdgeError] = useState("");
   const [edgeFrom, setEdgeFrom] = useState("");
   const [edgeTo, setEdgeTo] = useState("");
-  const [autoEdgesDone, setAutoEdgesDone] = useState(false);
+  const [edgeError, setEdgeError] = useState("");
+  const [showImport, setShowImport] = useState(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const setComp = (idx, key, val) => setForm(f => ({
-    ...f,
-    components: f.components.map((c, i) => i === idx ? { ...c, [key]: val } : c)
+  const parseJSON = (s) => { try { return JSON.parse(s); } catch { return s || {}; } };
+  const curTask = form.tasks[selTaskIdx] || form.tasks[0];
+
+  const setTask = (taskIdx, key, val) => setForm(f => ({
+    ...f, tasks: f.tasks.map((t, i) => i === taskIdx ? { ...t, [key]: val } : t)
+  }));
+  const setComp = (taskIdx, compIdx, key, val) => setForm(f => ({
+    ...f, tasks: f.tasks.map((t, i) => i !== taskIdx ? t : {
+      ...t, components: t.components.map((c, j) => j === compIdx ? { ...c, [key]: val } : c)
+    })
   }));
 
-  const parseJSON = (s) => { try { return JSON.parse(s); } catch { return s || {}; } };
+  const addTask = () => set("tasks", [...form.tasks, { id: tid(), name: "", imported_from: null, components: [], workflow: [] }]);
+  const deleteTask = (idx) => { set("tasks", form.tasks.filter((_, i) => i !== idx)); if (selTaskIdx >= form.tasks.length - 1) setSelTaskIdx(Math.max(0, form.tasks.length - 2)); };
 
-  const addComponent = () => {
-    const maxOrder = form.components.reduce((m, c) => Math.max(m, c.order), 0);
-    set("components", [...form.components, {
-      id: cid(), name: "", type: "trainer",
-      image: "", tag: "", gpuType: "A100", gpuCount: "2", mem: "64GB",
-      params: "", order: maxOrder + 1
+  const addComponentManual = () => {
+    const t = form.tasks[selTaskIdx];
+    const maxOrder = t.components.reduce((m, c) => Math.max(m, c.order), 0);
+    setTask(selTaskIdx, "components", [...t.components, {
+      id: cid(), name: "", image: "", tag: "", gpuType: "A100", gpuCount: "2", mem: "64GB", params: "", order: maxOrder + 1
     }]);
   };
-
-  const deleteComponent = (idx) => {
-    const comp = form.components[idx];
-    const newComps = form.components.filter((_, i) => i !== idx)
-      .map((c, i) => ({ ...c, order: i + 1 }));
-    set("components", newComps);
-    setWorkflow(wf => wf.filter(e => e.from !== comp.id && e.to !== comp.id));
+  const addFromLibrary = (libComp) => {
+    const t = form.tasks[selTaskIdx];
+    const maxOrder = t.components.reduce((m, c) => Math.max(m, c.order), 0);
+    const [img, tag] = libComp.image.split(":");
+    setTask(selTaskIdx, "components", [...t.components, {
+      id: cid(), name: libComp.name, image: img, tag: tag || "latest",
+      gpuType: "A100", gpuCount: "2", mem: "64GB", params: "", order: maxOrder + 1, libraryRef: libComp.id
+    }]);
+    flash(`✓ ${libComp.name} 컴포넌트를 라이브러리에서 추가했습니다.`);
   };
-
-  const handleTabSwitch = (tab) => {
-    setActiveTab(tab);
-    if (tab === "workflow" && workflow.length === 0 && !autoEdgesDone && form.components.length > 1) {
-      const sorted = [...form.components].sort((a, b) => a.order - b.order);
-      const autoEdges = [];
-      for (let i = 0; i < sorted.length - 1; i++) {
-        autoEdges.push({ from: sorted[i].id, to: sorted[i + 1].id });
-      }
-      setWorkflow(autoEdges);
-      setAutoEdgesDone(true);
-    }
+  const deleteComponent = (compIdx) => {
+    const t = form.tasks[selTaskIdx];
+    const comp = t.components[compIdx];
+    setTask(selTaskIdx, "components", t.components.filter((_, i) => i !== compIdx).map((c, i) => ({ ...c, order: i + 1 })));
+    setTask(selTaskIdx, "workflow", t.workflow.filter(e => e.from !== comp.id && e.to !== comp.id));
   };
 
   const addEdge = () => {
     setEdgeError("");
     if (!edgeFrom || !edgeTo) return;
     if (edgeFrom === edgeTo) { setEdgeError("자기 자신으로의 연결은 허용되지 않습니다"); return; }
-    if (workflow.some(e => e.from === edgeFrom && e.to === edgeTo)) { setEdgeError("이미 존재하는 연결입니다"); return; }
-    if (wouldCreateCycle(workflow, edgeFrom, edgeTo)) { setEdgeError("순환 참조가 감지되었습니다"); return; }
-    setWorkflow(wf => [...wf, { from: edgeFrom, to: edgeTo }]);
-    setEdgeFrom("");
-    setEdgeTo("");
+    if (curTask.workflow.some(e => e.from === edgeFrom && e.to === edgeTo)) { setEdgeError("이미 존재하는 연결입니다"); return; }
+    if (wouldCreateCycle(curTask.workflow, edgeFrom, edgeTo)) { setEdgeError("순환 참조가 감지되었습니다"); return; }
+    setTask(selTaskIdx, "workflow", [...curTask.workflow, { from: edgeFrom, to: edgeTo }]);
+    setEdgeFrom(""); setEdgeTo("");
   };
 
-  const swapOrder = (idx, dir) => {
-    const sorted = [...form.components].sort((a, b) => a.order - b.order);
-    const targetIdx = dir === "up" ? idx - 1 : idx + 1;
-    if (targetIdx < 0 || targetIdx >= sorted.length) return;
-    const tmpOrder = sorted[idx].order;
-    const newComps = form.components.map(c => {
-      if (c.id === sorted[idx].id) return { ...c, order: sorted[targetIdx].order };
-      if (c.id === sorted[targetIdx].id) return { ...c, order: tmpOrder };
-      return c;
-    });
-    set("components", newComps);
+  const importApp = (appSpec) => {
+    const newTasks = (appSpec.tasks || []).map(t => ({ ...t, id: tid(), imported_from: appSpec.id }));
+    set("tasks", [...form.tasks, ...newTasks]);
+    setShowImport(false);
+    flash(`✓ ${appSpec.name}에서 Task ${newTasks.length}개를 가져왔습니다.`);
   };
 
   const generate = () => {
-    const specName = form.name || "MyPipeline-v1";
+    const specName = form.name || "MyApp-v1";
     const specObj = {
-      pipeline_id: "PL-" + Math.random().toString(36).substr(2, 6).toUpperCase(),
+      app_id: "APP-" + Math.random().toString(36).substr(2, 6).toUpperCase(),
       name: specName, version: form.version || "1.0.0",
       env_vars: Object.fromEntries(form.envVars.filter(e => e.key).map(e => [e.key, e.value])),
-      components: form.components.map(c => ({
-        order: c.order,
-        name: c.name || `component_${c.order}`,
-        type: c.type,
-        image: { registry: c.image || "registry.avatar.io/default", tag: c.tag || "latest" },
-        resources: { gpu_type: c.gpuType, gpu_count: parseInt(c.gpuCount) || 2, memory: c.mem || "64GB" },
-        params: parseJSON(c.params)
+      tasks: form.tasks.map(t => ({
+        task_id: t.id, name: t.name || "unnamed-task", imported_from: t.imported_from || null,
+        components: t.components.map(c => ({
+          component_id: c.id, name: c.name || `component_${c.order}`,
+          image: { registry: c.image || "registry.avatar.io/default", tag: c.tag || "latest" },
+          resources: { gpu_type: c.gpuType, gpu_count: parseInt(c.gpuCount) || 2, memory: c.mem || "64GB" },
+          params: parseJSON(c.params)
+        })),
+        workflow: t.workflow
       })),
-      workflow: workflow.map(e => ({ from: e.from, to: e.to })),
+      imported_apps: [...new Set(form.tasks.filter(t => t.imported_from).map(t => t.imported_from))].map(id => {
+        const s = specs.find(x => x.id === id); return { app_ref: id, name: s?.name || id };
+      }),
+      training_config: { episodes: 1000, learning_rate: 0.001, batch_size: 64, gamma: 0.99, max_steps_per_episode: 500 },
       storage: { type: "distributed", path: "/training-data/" + specName.toLowerCase() },
       created_at: new Date().toISOString()
     };
     setGenerated(specObj);
     addSpec({
-      id: "SP-" + Math.random().toString(36).substr(2, 4).toUpperCase(),
-      name: specName, version: form.version || "1.0.0",
-      status: "ready", created: now().split(" ")[0],
-      components: form.components.map(c => ({
-        id: c.id, name: c.name || `component_${c.order}`, type: c.type,
-        image: (c.image || "registry.avatar.io/default") + ":" + (c.tag || "latest"),
-        tag: c.tag || "latest",
-        gpu_type: c.gpuType, gpu_count: parseInt(c.gpuCount) || 2,
-        mem: c.mem || "64GB", params: parseJSON(c.params), order: c.order
+      id: "APP-" + Math.random().toString(36).substr(2, 4).toUpperCase(),
+      name: specName, version: form.version || "1.0.0", status: "ready", created: now().split(" ")[0],
+      tasks: form.tasks.map(t => ({
+        id: t.id, name: t.name || "unnamed-task", imported_from: t.imported_from || null,
+        components: t.components.map(c => ({
+          id: c.id, name: c.name || `component_${c.order}`,
+          image: (c.image || "registry.avatar.io/default") + ":" + (c.tag || "latest"), tag: c.tag || "latest",
+          gpu_type: c.gpuType, gpu_count: parseInt(c.gpuCount) || 2, mem: c.mem || "64GB", params: parseJSON(c.params), order: c.order
+        })),
+        workflow: t.workflow
       })),
-      workflow: [...workflow]
+      imported_apps: []
     });
-    flash("스펙 파일이 생성되었습니다.");
+    flash("App 스펙 파일이 생성되었습니다.");
   };
-
-  const compNameMap = {};
-  form.components.forEach(c => { compNameMap[c.id] = c.name || `component_${c.order}`; });
-
-  const typeBadgeColors = { trainer: ["#DBEAFE", "#1E40AF"], data_loader: ["#DCFCE7", "#166534"], preprocessor: ["#FEF3C7", "#92400E"], evaluator: ["#F3E8FF", "#6B21A8"] };
-  const typeLabels = { trainer: "Trainer", data_loader: "Data Loader", preprocessor: "Preprocessor", evaluator: "Evaluator" };
-
-  const sortedComps = [...form.components].sort((a, b) => a.order - b.order);
-
-  // Components with no edges at all
-  const connectedIds = new Set();
-  workflow.forEach(e => { connectedIds.add(e.from); connectedIds.add(e.to); });
-  const disconnected = form.components.filter(c => !connectedIds.has(c.id));
 
   return (
     <div>
-      <Title sub="컴포넌트를 정의하고 워크플로우를 구성하여 파이프라인 스펙 파일(JSON)을 생성합니다.">Builder — 파이프라인 정의</Title>
+      <Title sub="App을 생성하고, Task를 구성하며, Component를 배치하여 App 스펙 파일(JSON)을 생성합니다.">Builder — App 개발</Title>
 
       {generated ? (
         <Card>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <I n="check" s={18} c="#166534" />
-              <span style={{ fontSize: 14, fontWeight: 700, color: "#166534" }}>스펙 파일 생성 완료</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#166534" }}>App 스펙 파일 생성 완료</span>
             </div>
             <Btn sz="sm" onClick={() => setGenerated(null)}>새로 작성</Btn>
           </div>
           <pre style={{ background: "#0F172A", borderRadius: 10, padding: 18, fontSize: 12, fontFamily: "'JetBrains Mono',monospace", overflow: "auto", lineHeight: 1.7, color: "#E2E8F0", margin: 0 }}>{JSON.stringify(generated, null, 2)}</pre>
-          <p style={{ margin: "14px 0 0", fontSize: 12, color: "#64748B" }}>→ 테스트 실행 또는 실행 요청 페이지에서 이 스펙 파일을 선택할 수 있습니다.</p>
+          <p style={{ margin: "14px 0 0", fontSize: 12, color: "#64748B" }}>→ Trainer 또는 테스트 실행 페이지에서 이 App을 선택할 수 있습니다.</p>
         </Card>
       ) : (
         <>
           {/* Tab bar */}
-          <div style={{ display: "flex", background: "#F1F5F9", borderRadius: 10, padding: 3, gap: 2, marginBottom: 20, width: "fit-content" }}>
-            {[["components", "컴포넌트 관리"], ["workflow", "워크플로우 구성"]].map(([key, label]) => (
-              <button key={key} onClick={() => handleTabSwitch(key)} style={{
+          <div role="tablist" style={{ display: "flex", background: "#F1F5F9", borderRadius: 10, padding: 3, gap: 2, marginBottom: 20, width: "fit-content" }}>
+            {[["app", "App 관리"], ["task", "Task 편집"], ["viz", "워크플로우 시각화"]].map(([key, label]) => (
+              <button role="tab" key={key} onClick={() => setActiveTab(key)} aria-selected={activeTab === key} style={{
                 padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
                 fontSize: 13, fontWeight: activeTab === key ? 600 : 400,
                 background: activeTab === key ? "#0F172A" : "transparent",
@@ -826,22 +847,20 @@ function BuilderPage({ flash, addSpec }) {
             ))}
           </div>
 
-          {/* TAB 1: Component Management */}
-          {activeTab === "components" && (
+          {/* TAB 1: App 관리 */}
+          {activeTab === "app" && (
             <>
-              {/* 기본 정보 */}
               <Card style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>기본 정보</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <InputField label="파이프라인 이름" value={form.name} onChange={e => set("name", e.target.value)} placeholder="MyPipeline-v1" />
+                  <InputField label="App 이름" value={form.name} onChange={e => set("name", e.target.value)} placeholder="MyApp-v1" />
                   <InputField label="버전" value={form.version} onChange={e => set("version", e.target.value)} placeholder="1.0.0" />
                 </div>
               </Card>
 
-              {/* 환경 변수 */}
               <Card style={{ marginBottom: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>환경 변수</div>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>환경 변수 (App 레벨)</div>
                   <Btn sz="sm" onClick={() => set("envVars", [...form.envVars, { key: "", value: "" }])}>+ 추가</Btn>
                 </div>
                 {form.envVars.map((env, i) => (
@@ -853,163 +872,181 @@ function BuilderPage({ flash, addSpec }) {
                 ))}
               </Card>
 
-              {/* 컴포넌트 */}
               <Card style={{ marginBottom: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>컴포넌트 ({form.components.length})</div>
-                  <Btn sz="sm" onClick={addComponent}>컴포넌트 추가</Btn>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>Task 목록 ({form.tasks.length})</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Btn sz="sm" onClick={addTask}>+ Task 추가</Btn>
+                    <Btn sz="sm" v="accent" onClick={() => setShowImport(!showImport)}>App Import</Btn>
+                  </div>
                 </div>
-                {form.components.map((c, i) => {
-                  const [tbBg, tbFg] = typeBadgeColors[c.type] || ["#F3F4F6", "#374151"];
+                {showImport && (
+                  <div style={{ marginBottom: 14, padding: 14, background: "#EFF6FF", borderRadius: 10, border: "1px solid #BFDBFE" }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1E40AF", marginBottom: 8 }}>다른 App에서 Task 가져오기</div>
+                    {specs.filter(s => s.status === "ready").map(s => (
+                      <div key={s.id} onClick={() => importApp(s)} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #E2E8F0", cursor: "pointer", marginBottom: 4, background: "#fff", fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+                        <span><b>{s.name}</b> — Task {getTaskCount(s)}개, Component {getComponentCount(s)}개</span>
+                        <span style={{ color: "#1E40AF", fontWeight: 600 }}>Import</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {form.tasks.map((t, i) => (
+                  <div key={t.id} style={{ padding: 14, border: "1px solid #E2E8F0", borderRadius: 10, marginBottom: 8, background: "#FAFBFC", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input value={t.name} onChange={e => setTask(i, "name", e.target.value)} placeholder="Task 이름" style={{ fontSize: 14, fontWeight: 600, border: "none", background: "transparent", outline: "none", width: 200 }} />
+                        {t.imported_from && <span style={{ fontSize: 10, background: "#EFF6FF", color: "#1E40AF", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>imported</span>}
+                        <span style={{ fontSize: 12, color: "#94A3B8" }}>Component {t.components.length}개</span>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <Btn sz="sm" onClick={() => { setSelTaskIdx(i); setActiveTab("task"); }}>편집</Btn>
+                      {form.tasks.length > 1 && <button onClick={() => deleteTask(i)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={14} c="#94A3B8" /></button>}
+                    </div>
+                  </div>
+                ))}
+              </Card>
+
+              <Btn v="primary" sz="lg" onClick={generate}>App 스펙 파일 생성</Btn>
+            </>
+          )}
+
+          {/* TAB 2: Task 편집 */}
+          {activeTab === "task" && (
+            <>
+              <Card style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Task 선택</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {form.tasks.map((t, i) => (
+                    <button key={t.id} onClick={() => setSelTaskIdx(i)} style={{ padding: "6px 14px", borderRadius: 8, border: selTaskIdx === i ? "2px solid #0F172A" : "1px solid #E2E8F0", background: selTaskIdx === i ? "#F1F5F9" : "#fff", cursor: "pointer", fontSize: 13, fontWeight: selTaskIdx === i ? 600 : 400, fontFamily: "inherit" }}>
+                      {t.name || `Task ${i + 1}`}
+                    </button>
+                  ))}
+                </div>
+              </Card>
+
+              <Card style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>Component ({curTask.components.length})</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Btn sz="sm" onClick={addComponentManual}>직접 추가</Btn>
+                    <Btn sz="sm" v="accent" onClick={() => {}}>라이브러리에서 추가 ▾</Btn>
+                  </div>
+                </div>
+                {/* Library quick-add */}
+                {library && library.length > 0 && (
+                  <div style={{ marginBottom: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {library.map(lc => (
+                      <button key={lc.id} onClick={() => addFromLibrary(lc)} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #BFDBFE", background: "#EFF6FF", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#1E40AF", fontFamily: "inherit" }}>
+                        + {lc.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {curTask.components.length === 0 ? (
+                  <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 16 }}>컴포넌트를 추가하세요. 라이브러리에서 선택하거나 직접 추가할 수 있습니다.</p>
+                ) : curTask.components.map((c, i) => {
                   const gpuNum = parseInt(c.gpuCount) || 0;
                   const memNum = parseInt(c.mem) || 0;
                   const overThreshold = gpuNum >= THRESHOLD.gpu || memNum >= THRESHOLD.mem;
                   return (
                     <div key={c.id} style={{ padding: 16, border: "1px solid #E2E8F0", borderRadius: 10, marginBottom: 10, background: "#FAFBFC" }}>
-                      {/* Header */}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>컴포넌트 #{c.order}: {c.name || "unnamed"}</span>
-                          <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 600, background: tbBg, color: tbFg }}>{typeLabels[c.type] || c.type}</span>
-                          <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 600, background: overThreshold ? "#FEF3C7" : "#DCFCE7", color: overThreshold ? "#92400E" : "#166534" }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>Component #{c.order}: {c.name || "unnamed"}</span>
+                          {c.libraryRef && <span style={{ fontSize: 10, background: "#EFF6FF", color: "#1E40AF", padding: "2px 6px", borderRadius: 4 }}>LIB</span>}
+                          <span style={{ display: "inline-flex", padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 600, background: overThreshold ? "#FEF3C7" : "#DCFCE7", color: overThreshold ? "#92400E" : "#166534" }}>
                             {overThreshold ? "임계치 초과" : "임계치 미만"}
                           </span>
                         </div>
                         <button onClick={() => deleteComponent(i)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={15} c="#94A3B8" /></button>
                       </div>
-                      {/* Row 1: name, type, order */}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
-                        <InputField label="이름" value={c.name} onChange={e => setComp(i, "name", e.target.value)} placeholder="component-name" />
-                        <div>
-                          <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 5 }}>유형</label>
-                          <select value={c.type} onChange={e => setComp(i, "type", e.target.value)} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", background: "#fff", color: "#0F172A", boxSizing: "border-box" }}>
-                            <option value="trainer">Trainer</option>
-                            <option value="data_loader">Data Loader</option>
-                            <option value="preprocessor">Preprocessor</option>
-                            <option value="evaluator">Evaluator</option>
-                          </select>
-                        </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                        <InputField label="이름" value={c.name} onChange={e => setComp(selTaskIdx, i, "name", e.target.value)} placeholder="component-name" />
                         <InputField label="순서" value={String(c.order)} disabled />
                       </div>
-                      {/* Row 2: image, tag */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                        <InputField label="Docker 이미지 주소" value={c.image} onChange={e => setComp(i, "image", e.target.value)} placeholder="registry.avatar.io/my-image" mono />
-                        <InputField label="태그" value={c.tag} onChange={e => setComp(i, "tag", e.target.value)} placeholder="latest" mono />
+                        <InputField label="Docker 이미지 주소" value={c.image} onChange={e => setComp(selTaskIdx, i, "image", e.target.value)} placeholder="registry.avatar.io/my-image" mono />
+                        <InputField label="태그" value={c.tag} onChange={e => setComp(selTaskIdx, i, "tag", e.target.value)} placeholder="latest" mono />
                       </div>
-                      {/* Row 3: gpu type, gpu count, mem */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
-                        <InputField label="GPU 유형" value={c.gpuType} onChange={e => setComp(i, "gpuType", e.target.value)} placeholder="A100" />
-                        <InputField label="GPU 수" value={c.gpuCount} onChange={e => setComp(i, "gpuCount", e.target.value)} placeholder="2" />
-                        <InputField label="메모리" value={c.mem} onChange={e => setComp(i, "mem", e.target.value)} placeholder="64GB" />
+                        <InputField label="GPU 유형" value={c.gpuType} onChange={e => setComp(selTaskIdx, i, "gpuType", e.target.value)} placeholder="A100" />
+                        <InputField label="GPU 수" value={c.gpuCount} onChange={e => setComp(selTaskIdx, i, "gpuCount", e.target.value)} placeholder="2" />
+                        <InputField label="메모리" value={c.mem} onChange={e => setComp(selTaskIdx, i, "mem", e.target.value)} placeholder="64GB" />
                       </div>
-                      {/* Row 4: params */}
                       <div>
                         <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 5 }}>파라미터 JSON</label>
-                        <textarea value={c.params} onChange={e => setComp(i, "params", e.target.value)} placeholder='{"lr": 0.001, "epochs": 30}' rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+                        <textarea value={c.params} onChange={e => setComp(selTaskIdx, i, "params", e.target.value)} placeholder='{"lr": 0.001, "epochs": 30}' rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
                       </div>
                     </div>
                   );
                 })}
               </Card>
 
-              <Btn v="primary" sz="lg" onClick={generate}>스펙 파일 생성</Btn>
-            </>
-          )}
-
-          {/* TAB 2: Workflow Composition */}
-          {activeTab === "workflow" && (
-            <>
-              {/* 실행 순서 */}
-              <Card style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>실행 순서</div>
-                {sortedComps.length === 0 ? (
-                  <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 16 }}>컴포넌트를 먼저 추가하세요.</p>
-                ) : (
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead><tr><TH w={50}>순서</TH><TH>컴포넌트</TH><TH>유형</TH><TH>이미지</TH><TH>자원</TH><TH w={80} a="center">이동</TH></tr></thead>
-                    <tbody>
-                      {sortedComps.map((c, idx) => {
-                        const [tbBg, tbFg] = typeBadgeColors[c.type] || ["#F3F4F6", "#374151"];
-                        const imgDisplay = (c.image || "N/A").length > 30 ? (c.image || "N/A").slice(0, 30) + "..." : (c.image || "N/A");
-                        return (
-                          <tr key={c.id}>
-                            <TD a="center" b>{c.order}</TD>
-                            <TD b>{c.name || `component_${c.order}`}</TD>
-                            <TD><span style={{ display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 600, background: tbBg, color: tbFg }}>{typeLabels[c.type] || c.type}</span></TD>
-                            <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#64748B" }}>{imgDisplay}</span></TD>
-                            <TD>{c.gpuType} x {c.gpuCount}, {c.mem}</TD>
-                            <TD a="center">
-                              <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
-                                <button onClick={() => swapOrder(idx, "up")} disabled={idx === 0} style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: idx === 0 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: idx === 0 ? 0.3 : 1 }}><I n="up" s={14} c="#334155" /></button>
-                                <button onClick={() => swapOrder(idx, "down")} disabled={idx === sortedComps.length - 1} style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: idx === sortedComps.length - 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: idx === sortedComps.length - 1 ? 0.3 : 1 }}><I n="down" s={14} c="#334155" /></button>
-                              </div>
-                            </TD>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </Card>
-
               {/* 의존성 연결 */}
               <Card style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>의존성 연결</div>
-                {/* Add edge row */}
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
                   <div style={{ flex: 1 }}>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 4 }}>From</label>
                     <select value={edgeFrom} onChange={e => { setEdgeFrom(e.target.value); setEdgeError(""); }} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", background: "#fff", boxSizing: "border-box" }}>
                       <option value="">선택...</option>
-                      {form.components.map(c => <option key={c.id} value={c.id}>{c.name || `component_${c.order}`}</option>)}
+                      {curTask.components.map(c => <option key={c.id} value={c.id}>{c.name || `component_${c.order}`}</option>)}
                     </select>
                   </div>
                   <div style={{ flex: 1 }}>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 4 }}>To</label>
                     <select value={edgeTo} onChange={e => { setEdgeTo(e.target.value); setEdgeError(""); }} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", background: "#fff", boxSizing: "border-box" }}>
                       <option value="">선택...</option>
-                      {form.components.map(c => <option key={c.id} value={c.id}>{c.name || `component_${c.order}`}</option>)}
+                      {curTask.components.map(c => <option key={c.id} value={c.id}>{c.name || `component_${c.order}`}</option>)}
                     </select>
                   </div>
-                  <div style={{ paddingTop: 18 }}>
-                    <Btn sz="sm" v="primary" onClick={addEdge}>추가</Btn>
-                  </div>
+                  <div style={{ paddingTop: 18 }}><Btn sz="sm" v="primary" onClick={addEdge}>추가</Btn></div>
                 </div>
                 {edgeError && <div style={{ fontSize: 12, color: "#B91C1C", marginBottom: 8 }}>{edgeError}</div>}
-
-                {/* Edge list */}
-                {workflow.length === 0 ? (
+                {curTask.workflow.length === 0 ? (
                   <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 12, padding: 10 }}>연결이 없습니다.</p>
-                ) : (
-                  <div style={{ marginTop: 8 }}>
-                    {workflow.map((e, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", borderRadius: 6, background: "#F8FAFC", border: "1px solid #E2E8F0", marginBottom: 4 }}>
-                        <span style={{ fontSize: 13, color: "#334155" }}>
-                          <span style={{ fontWeight: 600 }}>{compNameMap[e.from] || e.from}</span>
-                          <span style={{ color: "#94A3B8", margin: "0 8px" }}> → </span>
-                          <span style={{ fontWeight: 600 }}>{compNameMap[e.to] || e.to}</span>
-                        </span>
-                        <button onClick={() => setWorkflow(wf => wf.filter((_, j) => j !== i))} style={{ padding: 2, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={14} c="#94A3B8" /></button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Warning for disconnected components */}
-                {disconnected.length > 0 && workflow.length > 0 && (
-                  <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 6, background: "#FEF3C7", border: "1px solid #FDE68A", fontSize: 12, color: "#92400E" }}>
-                    연결되지 않은 컴포넌트: {disconnected.map(c => c.name || `component_${c.order}`).join(", ")}
-                  </div>
-                )}
+                ) : curTask.workflow.map((e, i) => {
+                  const fn = curTask.components.find(c => c.id === e.from);
+                  const tn = curTask.components.find(c => c.id === e.to);
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", borderRadius: 6, background: "#F8FAFC", border: "1px solid #E2E8F0", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, color: "#334155" }}>
+                        <span style={{ fontWeight: 600 }}>{fn?.name || e.from}</span>
+                        <span style={{ color: "#94A3B8", margin: "0 8px" }}> → </span>
+                        <span style={{ fontWeight: 600 }}>{tn?.name || e.to}</span>
+                      </span>
+                      <button onClick={() => setTask(selTaskIdx, "workflow", curTask.workflow.filter((_, j) => j !== i))} style={{ padding: 2, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={14} c="#94A3B8" /></button>
+                    </div>
+                  );
+                })}
               </Card>
 
-              {/* 워크플로우 다이어그램 */}
+              <Btn v="primary" sz="lg" onClick={generate}>App 스펙 파일 생성</Btn>
+            </>
+          )}
+
+          {/* TAB 3: 워크플로우 시각화 */}
+          {activeTab === "viz" && (
+            <>
               <Card style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>워크플로우 다이어그램</div>
-                <WorkflowDiagram components={form.components} workflow={workflow} />
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Task 선택</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {form.tasks.map((t, i) => (
+                    <button key={t.id} onClick={() => setSelTaskIdx(i)} style={{ padding: "6px 14px", borderRadius: 8, border: selTaskIdx === i ? "2px solid #0F172A" : "1px solid #E2E8F0", background: selTaskIdx === i ? "#F1F5F9" : "#fff", cursor: "pointer", fontSize: 13, fontWeight: selTaskIdx === i ? 600 : 400, fontFamily: "inherit" }}>
+                      {t.name || `Task ${i + 1}`}
+                    </button>
+                  ))}
+                </div>
               </Card>
 
-              <Btn v="primary" sz="lg" onClick={generate}>스펙 파일 생성</Btn>
+              <Card style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>워크플로우 다이어그램 — {curTask.name || "Task"}</div>
+                <WorkflowDiagram components={curTask.components} workflow={curTask.workflow} />
+              </Card>
+
+              <Btn v="primary" sz="lg" onClick={generate}>App 스펙 파일 생성</Btn>
             </>
           )}
         </>
@@ -1024,7 +1061,7 @@ function TestRunPage({ specs, testRuns, runTest, setPage }) {
   
   return (
     <div>
-      <Title sub="파이프라인 스펙 파일을 선택하여 테스트 실행합니다. 테스트 실행은 일반 파이프라인 실행과 동일하게 동작합니다.">테스트 실행</Title>
+      <Title sub="App 스펙 파일을 선택하여 테스트 실행합니다. 테스트 실행은 일반 App 실행과 동일하게 동작합니다.">테스트 실행</Title>
       
       {/* Spec selection for new test */}
       <Card style={{ marginBottom: 20 }}>
@@ -1054,7 +1091,7 @@ function TestRunPage({ specs, testRuns, runTest, setPage }) {
           <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>테스트 실행 이력이 없습니다.</p>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><TH>Run ID</TH><TH>파이프라인</TH><TH a="center">상태</TH><TH>자원</TH><TH>실행 시간</TH><TH>실행일시</TH></tr></thead>
+            <thead><tr><TH>Run ID</TH><TH>App</TH><TH a="center">상태</TH><TH>자원</TH><TH>실행 시간</TH><TH>실행일시</TH></tr></thead>
             <tbody>
               {[...testRuns].reverse().map(tr => (
                 <tr key={tr.id}>
@@ -1082,27 +1119,83 @@ function TestRunPage({ specs, testRuns, runTest, setPage }) {
   );
 }
 
-/* ═══════════════════════ REQUEST PAGE ═══════════════════════ */
-function RequestPage({ specs, testRuns, addWorkload }) {
-  const [sel, setSel] = useState(null);
+/* ═══════════════════════ COMPONENT LIBRARY PAGE ═══════════════════════ */
+function ComponentLibraryPage({ library, setLibrary, flash }) {
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: "", image: "", description: "", version: "1.0" });
+
+  const addComponent = () => {
+    if (!form.name || !form.image) { flash("이름과 이미지를 입력하세요."); return; }
+    const newComp = { id: "CL-" + String(library.length + 1).padStart(2, "0"), ...form, created: now().split(" ")[0] };
+    setLibrary(prev => [...prev, newComp]);
+    setForm({ name: "", image: "", description: "", version: "1.0" });
+    setShowForm(false);
+    flash("✓ 컴포넌트가 라이브러리에 등록되었습니다.");
+  };
+
+  return (
+    <div>
+      <Title sub="시스템 전역 재사용 가능한 컴포넌트 카탈로그입니다.">컴포넌트 글로벌 라이브러리</Title>
+
+      <Card>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>등록된 컴포넌트 ({library.length}개)</div>
+          <Btn v="primary" icon="builder" onClick={() => setShowForm(!showForm)}>{showForm ? "취소" : "새 컴포넌트 등록"}</Btn>
+        </div>
+
+        {showForm && (
+          <div style={{ marginBottom: 16, padding: 16, background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <InputField label="컴포넌트 이름" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="컴포넌트 이름" />
+              <InputField label="이미지 경로" value={form.image} onChange={e => setForm(f => ({ ...f, image: e.target.value }))} placeholder="registry.avatar.io/name:tag" />
+              <InputField label="설명" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="컴포넌트 설명" />
+              <InputField label="버전" value={form.version} onChange={e => setForm(f => ({ ...f, version: e.target.value }))} />
+            </div>
+            <Btn v="success" icon="check" onClick={addComponent}>등록</Btn>
+          </div>
+        )}
+
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr><TH>ID</TH><TH>이름</TH><TH>이미지</TH><TH>설명</TH><TH a="center">버전</TH><TH a="center">등록일</TH></tr></thead>
+          <tbody>
+            {library.map(c => (
+              <tr key={c.id}>
+                <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#7E22CE" }}>{c.id}</span></TD>
+                <TD b>{c.name}</TD>
+                <TD><span style={{ fontSize: 12, color: "#64748B", fontFamily: "'JetBrains Mono',monospace" }}>{c.image}</span></TD>
+                <TD>{c.description}</TD>
+                <TD a="center">{c.version}</TD>
+                <TD a="center">{c.created}</TD>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+/* ═══════════════════════ TRAINER PAGE ═══════════════════════ */
+function TrainerPage({ specs, addWorkload, flash }) {
+  const [selSpec, setSelSpec] = useState(null);
   const [done, setDone] = useState(false);
   const [lastResult, setLastResult] = useState(null);
-  const [form, setForm] = useState({ gpuType: "A100", gpuCount: "4", mem: "128GB", maxTime: "24h", testRunRef: "" });
+  const [params, setParams] = useState({ episodes: "1000", learningRate: "0.001", batchSize: "64", discountFactor: "0.99", maxSteps: "500" });
+  const [form, setForm] = useState({ gpuType: "A100", gpuCount: "4", mem: "128GB" });
 
-  const passedRuns = testRuns.filter(t => t.status === "passed");
-  const selSpec = specs.find(s => s.id === sel);
+  const spec = specs.find(s => s.id === selSpec);
   const gpuStr = form.gpuType + " x " + form.gpuCount;
   const needsApproval = exceedsThreshold(gpuStr, form.mem);
 
   if (done) return (
     <div>
-      <Title>워크로드 실행 요청</Title>
+      <Title sub="강화학습/학습 요청을 제출합니다.">Trainer</Title>
       <Card>
         <div style={{ textAlign: "center", padding: "40px 0" }}>
           <div style={{ width: 52, height: 52, borderRadius: 99, background: lastResult?.immediate ? "#EFF6FF" : "#F0FDF4", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
             <I n={lastResult?.immediate ? "play" : "check"} s={26} c={lastResult?.immediate ? "#1D4ED8" : "#166534"} />
           </div>
-          <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700 }}>실행 요청 완료</h3>
+          <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700 }}>학습 요청 완료</h3>
           {lastResult?.immediate ? (
             <>
               <p style={{ margin: "0 0 4px", fontSize: 13, color: "#1E40AF", fontWeight: 500 }}>자원 임계치 미만 — 실행 대기열에 진입했습니다.</p>
@@ -1115,7 +1208,7 @@ function RequestPage({ specs, testRuns, addWorkload }) {
             </>
           )}
           <div style={{ marginTop: 20 }}>
-            <Btn onClick={() => { setDone(false); setSel(null); setLastResult(null); }}>새 요청 작성</Btn>
+            <Btn onClick={() => { setDone(false); setSelSpec(null); setLastResult(null); }}>새 학습 요청</Btn>
           </div>
         </div>
       </Card>
@@ -1124,28 +1217,41 @@ function RequestPage({ specs, testRuns, addWorkload }) {
 
   return (
     <div>
-      <Title sub="스펙 파일 선택 → 자원 요청 → 테스트 run 참조(선택) → 실행 요청 제출">워크로드 실행 요청</Title>
-      
-      {/* Step 1: Spec selection */}
+      <Title sub="App을 선택하고 학습 파라미터를 설정하여 학습(Training) 워크로드를 제출합니다.">Trainer — 학습 요청</Title>
+
+      {/* Step 1: App 선택 */}
       <Card style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>① 스펙 파일 선택</div>
-        {specs.filter(s => s.status === "ready").map(s => (
-          <div key={s.id} onClick={() => setSel(s.id)} style={{ padding: "12px 16px", borderRadius: 10, border: `2px solid ${sel === s.id ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, background: sel === s.id ? "#F8FAFC" : "#fff", transition: "all .15s" }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>{s.name} <span style={{ fontWeight: 400, color: "#94A3B8", fontSize: 12 }}>v{s.version}</span></div>
-              <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>{getSpecImage(s)} · 컴포넌트 {getComponentCount(s)}개 · {getTotalGpuSummary(s)}</div>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>App 선택</div>
+        <div style={{ display: "grid", gap: 8 }}>
+          {specs.filter(s => s.status === "ready").map(s => (
+            <div key={s.id} onClick={() => setSelSpec(s.id)} style={{ padding: "14px 16px", borderRadius: 10, border: `2px solid ${selSpec === s.id ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", background: selSpec === s.id ? "#F8FAFC" : "#fff", transition: "all .15s" }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>{s.name} <span style={{ fontWeight: 400, color: "#94A3B8", fontSize: 12 }}>v{s.version}</span></div>
+                <div style={{ fontSize: 12, color: "#64748B", marginTop: 3 }}>Task {getTaskCount(s)}개 · 컴포넌트 {getComponentCount(s)}개 · {getTotalGpuSummary(s)}, {getTotalMem(s)}</div>
+              </div>
+              <Badge v="ready">준비됨</Badge>
             </div>
-            <Badge v="ready">준비됨</Badge>
-          </div>
-        ))}
+          ))}
+        </div>
       </Card>
-      
-      {sel && <>
-        {/* Step 2: Resource request */}
+
+      {selSpec && spec && <>
+        {/* Step 2: 학습 파라미터 */}
+        <Card style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>학습 파라미터</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <InputField label="에피소드" value={params.episodes} onChange={e => setParams(p => ({ ...p, episodes: e.target.value }))} />
+            <InputField label="학습률" value={params.learningRate} onChange={e => setParams(p => ({ ...p, learningRate: e.target.value }))} />
+            <InputField label="배치 크기" value={params.batchSize} onChange={e => setParams(p => ({ ...p, batchSize: e.target.value }))} />
+            <InputField label="감가율" value={params.discountFactor} onChange={e => setParams(p => ({ ...p, discountFactor: e.target.value }))} />
+            <InputField label="최대 스텝" value={params.maxSteps} onChange={e => setParams(p => ({ ...p, maxSteps: e.target.value }))} />
+          </div>
+        </Card>
+
+        {/* Step 3: 자원 설정 */}
         <Card style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>② 자원 요청</div>
-            {/* Threshold indicator */}
+            <div style={{ fontSize: 14, fontWeight: 700 }}>자원 요청</div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: needsApproval ? "#FEF3C7" : "#DCFCE7" }}>
               <I n="threshold" s={14} c={needsApproval ? "#92400E" : "#166534"} />
               <span style={{ fontSize: 11, fontWeight: 600, color: needsApproval ? "#92400E" : "#166534" }}>
@@ -1153,54 +1259,24 @@ function RequestPage({ specs, testRuns, addWorkload }) {
               </span>
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
-            <InputField label="GPU 유형" value={form.gpuType} onChange={e=>setForm(f=>({...f,gpuType:e.target.value}))} />
-            <InputField label="GPU 수" value={form.gpuCount} onChange={e=>setForm(f=>({...f,gpuCount:e.target.value}))} />
-            <InputField label="메모리" value={form.mem} onChange={e=>setForm(f=>({...f,mem:e.target.value}))} />
-            <InputField label="최대 실행 시간" value={form.maxTime} onChange={e=>setForm(f=>({...f,maxTime:e.target.value}))} />
-          </div>
-          <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 6, background: "#F8FAFC", border: "1px solid #E2E8F0", fontSize: 11, color: "#64748B" }}>
-            임계치: GPU ≥ {THRESHOLD.gpu}기 또는 메모리 ≥ {THRESHOLD.mem}GB → 현재 요청: GPU {form.gpuCount}기, 메모리 {form.mem}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <InputField label="GPU 유형" value={form.gpuType} onChange={e => setForm(f => ({ ...f, gpuType: e.target.value }))} />
+            <InputField label="GPU 수" value={form.gpuCount} onChange={e => setForm(f => ({ ...f, gpuCount: e.target.value }))} />
+            <InputField label="메모리" value={form.mem} onChange={e => setForm(f => ({ ...f, mem: e.target.value }))} />
           </div>
         </Card>
 
-        {/* Step 3: Test run reference (optional) */}
-        <Card style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>③ 테스트 run 참조 <span style={{ fontWeight: 400, fontSize: 12, color: "#94A3B8" }}>(선택 사항)</span></div>
-          <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 10px" }}>사전 테스트 실행 결과를 본 실행 요청에 참조(annotate)할 수 있습니다.</p>
-          {passedRuns.length > 0 ? (
-            <div style={{ display: "grid", gap: 6 }}>
-              <div onClick={() => setForm(f=>({...f,testRunRef:""}))} style={{ padding: "10px 14px", borderRadius: 8, border: `2px solid ${!form.testRunRef ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, background: !form.testRunRef ? "#F8FAFC" : "#fff", fontSize: 13, transition: "all .15s" }}>
-                <span style={{ color: "#64748B" }}>참조 없음 (테스트 실행 생략)</span>
-              </div>
-              {passedRuns.map(tr => (
-                <div key={tr.id} onClick={() => setForm(f=>({...f,testRunRef:tr.id}))} style={{ padding: "10px 14px", borderRadius: 8, border: `2px solid ${form.testRunRef === tr.id ? "#7E22CE" : "#E2E8F0"}`, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", background: form.testRunRef === tr.id ? "#FAF5FF" : "#fff", transition: "all .15s" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#7E22CE", fontWeight: 500 }}>{tr.id}</span>
-                    <span style={{ fontSize: 13 }}>{tr.specName}</span>
-                    <span style={{ fontSize: 11, color: "#94A3B8" }}>{tr.created}</span>
-                  </div>
-                  <Badge v="passed">통과</Badge>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ padding: "14px", background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, color: "#94A3B8", textAlign: "center" }}>
-              아직 완료된 테스트 run이 없습니다. 테스트 실행 페이지에서 먼저 테스트를 실행하세요.
-            </div>
-          )}
-        </Card>
-        
         <Btn v="primary" sz="lg" onClick={() => {
           addWorkload({
-            name: selSpec.name, specId: selSpec.id, requester: "나",
-            priority: "medium", gpu: gpuStr, mem: form.mem,
-            testRunRef: form.testRunRef || null
+            name: spec.name + "-training", specId: spec.id, requester: "나",
+            priority: "high", gpu: gpuStr, mem: form.mem,
+            testRunRef: null, isTrainingRequest: true,
+            trainingConfig: { ...params }
           });
           setLastResult({ immediate: !needsApproval });
           setDone(true);
         }}>
-          {needsApproval ? "실행 요청 제출 (승인 필요)" : "실행 요청 제출"}
+          {needsApproval ? "학습 요청 제출 (승인 필요)" : "학습 요청 제출"}
         </Btn>
       </>}
     </div>
@@ -1208,11 +1284,11 @@ function RequestPage({ specs, testRuns, addWorkload }) {
 }
 
 /* ═══════════════════════ APPROVAL PAGE ═══════════════════════ */
-function ApprovalPage({ pending, approveWorkload, rejectWorkload, testRuns, setModal }) {
+function ApprovalPage({ pending, approveWorkload, rejectWorkload, runLoopTest, testRuns, setModal }) {
   return (
     <div>
-      <Title sub="자원 임계치를 초과한 워크로드를 검토하고 승인합니다. (임계치 미만 요청은 자동 실행됩니다)">승인 관리</Title>
-      
+      <Title sub="자원 임계치를 초과한 워크로드를 검토하고 승인합니다. 최소 실행 테스트를 통과해야 승인할 수 있습니다.">승인 관리</Title>
+
       {pending.length === 0 ? (
         <Card>
           <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 14, padding: 32 }}>승인 대기 중인 요청이 없습니다.</p>
@@ -1220,6 +1296,9 @@ function ApprovalPage({ pending, approveWorkload, rejectWorkload, testRuns, setM
         </Card>
       ) : pending.map(w => {
         const refRun = w.testRunRef ? testRuns.find(t => t.id === w.testRunRef) : null;
+        const lt = w.loopTest;
+        const loopPassed = lt && lt.status === "passed";
+        const loopRunning = lt && lt.status === "running";
         return (
           <Card key={w.id} style={{ marginBottom: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -1231,30 +1310,60 @@ function ApprovalPage({ pending, approveWorkload, rejectWorkload, testRuns, setM
               </div>
               <Badge v="pending">승인대기</Badge>
             </div>
-            
+
             {/* Resource threshold info */}
             <div style={{ marginTop: 14, padding: "10px 14px", background: "#FEF3C7", borderRadius: 8, display: "flex", alignItems: "center", gap: 8 }}>
               <I n="threshold" s={16} c="#92400E" />
               <span style={{ fontSize: 12, fontWeight: 600, color: "#92400E" }}>자원 임계치 초과: GPU {parseGpuCount(w.gpu)}기, 메모리 {parseMemNum(w.mem)}GB</span>
             </div>
-            
+
+            {/* Minimum execution test (loop test) */}
+            <div style={{ marginTop: 12, padding: 14, background: loopPassed ? "#F0FDF4" : "#FFF7ED", borderRadius: 10, border: `1px solid ${loopPassed ? "#BBF7D0" : "#FED7AA"}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: loopPassed ? "#166534" : "#92400E" }}>최소 실행 테스트 (루프 테스트)</div>
+                {lt && <Badge v={lt.status === "passed" ? "passed" : lt.status === "running" ? "running" : "waiting"}>{lt.status === "passed" ? "통과" : lt.status === "running" ? "실행 중" : "대기"}</Badge>}
+              </div>
+              {loopPassed ? (
+                <div style={{ fontSize: 12, color: "#166534" }}>
+                  <div>에피소드: {lt.episodes}회 · 실행자: {lt.executedBy} · {lt.executedAt}</div>
+                  {lt.results && (
+                    <div style={{ marginTop: 6 }}>
+                      {lt.results.successRate && <span>성공률: {lt.results.successRate} · 평균 시간: {lt.results.avgDuration}</span>}
+                      {lt.results.convergence !== undefined && <span>수렴: {lt.results.convergence ? "YES" : "NO"} · 평균 보상: {lt.results.avgReward} · 최종 보상: {lt.results.finalReward}</span>}
+                    </div>
+                  )}
+                  {lt.results?.log && (
+                    <Btn sz="sm" v="ghost" style={{ marginTop: 6 }} onClick={() => setModal({ title: "루프 테스트 로그", content: <pre style={{ background: "#0F172A", borderRadius: 8, padding: 14, fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: "#A5F3FC", margin: 0, lineHeight: 1.7 }}>{lt.results.log}</pre> })}>로그 보기</Btn>
+                  )}
+                </div>
+              ) : loopRunning ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#1E40AF" }}>
+                  <span style={{ width: 12, height: 12, borderRadius: 99, border: "2px solid #1D4ED8", borderTopColor: "transparent", animation: "spin .8s linear infinite", display: "inline-block" }} />
+                  최소 실행 테스트 진행 중...
+                </div>
+              ) : (
+                <div>
+                  <p style={{ fontSize: 12, color: "#92400E", margin: "0 0 8px" }}>승인 전 최소 실행 테스트를 수행해야 합니다.</p>
+                  <Btn v="primary" icon="test" onClick={() => runLoopTest(w.id)}>최소 실행 테스트 실행</Btn>
+                </div>
+              )}
+            </div>
+
             {/* Test run reference */}
-            <div style={{ marginTop: 12, padding: 14, background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#64748B", marginBottom: 8 }}>테스트 run 참조</div>
-              {refRun ? (
+            {refRun && (
+              <div style={{ marginTop: 12, padding: 14, background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#64748B", marginBottom: 8 }}>테스트 run 참조</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <Badge v="passed">통과</Badge>
                   <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#7E22CE" }}>{refRun.id}</span>
                   <span style={{ fontSize: 12, color: "#64748B" }}>{refRun.specName} · {refRun.duration}</span>
                   <Btn sz="sm" v="ghost" onClick={() => setModal({ title: `테스트 결과: ${refRun.id}`, content: <pre style={{ background: "#0F172A", borderRadius: 8, padding: 14, fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: "#A5F3FC", margin: 0, lineHeight: 1.7 }}>{refRun.log}</pre> })}>로그 보기</Btn>
                 </div>
-              ) : (
-                <span style={{ fontSize: 12, color: "#94A3B8" }}>테스트 run 참조 없음</span>
-              )}
-            </div>
-            
+              </div>
+            )}
+
             <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
-              <Btn v="success" icon="check" onClick={() => approveWorkload(w.id)}>승인</Btn>
+              <Btn v="success" icon="check" onClick={() => approveWorkload(w.id)} disabled={!loopPassed}>승인{!loopPassed ? " (테스트 필요)" : ""}</Btn>
               <Btn v="danger" onClick={() => rejectWorkload(w.id)}>반려</Btn>
               <Btn v="ghost" onClick={() => setModal({
                 title: `${w.name} 상세`,
@@ -1266,6 +1375,7 @@ function ApprovalPage({ pending, approveWorkload, rejectWorkload, testRuns, setM
                     <p><b>GPU:</b> {w.gpu} · <b>메모리:</b> {w.mem}</p>
                     <p><b>신청일시:</b> {w.submitted}</p>
                     <p><b>테스트 run:</b> {w.testRunRef || "없음"}</p>
+                    <p><b>최소 실행 테스트:</b> {lt?.status === "passed" ? "통과" : "미완료"}</p>
                     <p><b>승인 필요:</b> 자원 임계치 초과</p>
                   </div>
                 )
