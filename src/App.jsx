@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 /* ═══════════════════════════════════════════════════════
-   AVATAR OnE  v1.4  —  ML/RL Training Platform Demo
+   AVATAR OnE  v1.5  —  ML/RL Training Platform Demo
 
-   v1.4 Changes:
+   v1.5 Changes:
    · Pipeline→Avatar App terminology transition
    · 3-tier hierarchy: App → Task → Component
    · Component Global Library (system-wide reusable catalog)
@@ -350,6 +350,7 @@ export default function App() {
   }, [flash]);
 
   const addSpec = useCallback((s) => setSpecs(prev => [...prev, s]), []);
+  const updateSpec = useCallback((id, updated) => setSpecs(prev => prev.map(s => s.id === id ? { ...s, ...updated } : s)), []);
 
   /* ─── Derived State ─── */
   const pending = workloads.filter(w => w.status === "pending");
@@ -386,7 +387,7 @@ export default function App() {
             <span style={{ color: "#fff", fontSize: 14, fontWeight: 800, letterSpacing: -0.5 }}>A</span>
           </div>
           <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>AVATAR OnE</span>
-          <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", marginLeft: 2 }}>v1.4</span>
+          <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", marginLeft: 2 }}>v1.5</span>
         </div>
         <div style={{ flex: 1 }} />
         
@@ -444,7 +445,7 @@ export default function App() {
         {/* ─── Main Content ─── */}
         <main style={{ flex: 1, padding: 32, maxWidth: 1120, overflowY: "auto" }}>
           {page === "home" && <HomePage {...{ mode, setPage, workloads, models, specs, testRuns, pending, running, queued }} />}
-          {page === "builder" && <BuilderPage {...{ flash, addSpec, specs, library }} />}
+          {page === "builder" && <BuilderPage {...{ flash, addSpec, updateSpec, specs, library }} />}
           {page === "library" && <ComponentLibraryPage {...{ library, setLibrary, flash }} />}
           {page === "trainer" && <TrainerPage {...{ specs, addWorkload, flash }} />}
           {page === "test" && <TestRunPage {...{ specs, testRuns, runTest, setPage }} />}
@@ -528,9 +529,9 @@ function HomePage({ mode, setPage, workloads, models, specs, testRuns, pending, 
         ))}
       </div>
 
-      {/* v1.4 Workflow guide */}
+      {/* v1.5 Workflow guide */}
       <Card style={{ marginBottom: 20, background: "linear-gradient(135deg, #F8FAFC, #F1F5F9)", border: "1px solid #E2E8F0" }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>v1.4 워크플로우</div>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>v1.5 워크플로우</div>
         <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
           {[
             { step: "1", title: "Builder", desc: "App 개발\n(App→Task→Component)", color: "#475569" },
@@ -702,7 +703,9 @@ function WorkflowDiagram({ components, workflow }) {
 }
 
 /* ═══════════════════════════ BUILDER ═══════════════════════════ */
-function BuilderPage({ flash, addSpec, specs, library }) {
+function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
+  const [view, setView] = useState("list"); // "list" or "editor"
+  const [editingSpecId, setEditingSpecId] = useState(null);
   const [activeTab, setActiveTab] = useState("app");
   const [selTaskIdx, setSelTaskIdx] = useState(0);
   const [form, setForm] = useState({
@@ -715,6 +718,8 @@ function BuilderPage({ flash, addSpec, specs, library }) {
   const [edgeTo, setEdgeTo] = useState("");
   const [edgeError, setEdgeError] = useState("");
   const [showImport, setShowImport] = useState(false);
+  const [connectMode, setConnectMode] = useState(false);
+  const [connectSource, setConnectSource] = useState(null);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const parseJSON = (s) => { try { return JSON.parse(s); } catch { return s || {}; } };
@@ -756,14 +761,31 @@ function BuilderPage({ flash, addSpec, specs, library }) {
     setTask(selTaskIdx, "workflow", t.workflow.filter(e => e.from !== comp.id && e.to !== comp.id));
   };
 
-  const addEdge = () => {
-    setEdgeError("");
-    if (!edgeFrom || !edgeTo) return;
-    if (edgeFrom === edgeTo) { setEdgeError("자기 자신으로의 연결은 허용되지 않습니다"); return; }
-    if (curTask.workflow.some(e => e.from === edgeFrom && e.to === edgeTo)) { setEdgeError("이미 존재하는 연결입니다"); return; }
-    if (wouldCreateCycle(curTask.workflow, edgeFrom, edgeTo)) { setEdgeError("순환 참조가 감지되었습니다"); return; }
-    setTask(selTaskIdx, "workflow", [...curTask.workflow, { from: edgeFrom, to: edgeTo }]);
-    setEdgeFrom(""); setEdgeTo("");
+  const addEdge = (from, to) => {
+    if (!from || !to) return "소스와 타겟을 선택하세요";
+    if (from === to) return "자기 자신으로의 연결은 허용되지 않습니다";
+    if (curTask.workflow.some(e => e.from === from && e.to === to)) return "이미 존재하는 연결입니다";
+    if (wouldCreateCycle(curTask.workflow, from, to)) return "순환 참조가 감지되었습니다";
+    setTask(selTaskIdx, "workflow", [...curTask.workflow, { from, to }]);
+    return null;
+  };
+  const addEdgeDropdown = () => {
+    const err = addEdge(edgeFrom, edgeTo);
+    if (err) { setEdgeError(err); return; }
+    setEdgeError(""); setEdgeFrom(""); setEdgeTo("");
+  };
+
+  const handleNodeClick = (compId) => {
+    if (!connectMode) return;
+    if (!connectSource) {
+      setConnectSource(compId);
+    } else {
+      const err = addEdge(connectSource, compId);
+      if (err) { flash("⚠ " + err); }
+      else { flash("✓ 연결이 추가되었습니다."); }
+      setConnectSource(null);
+      setConnectMode(false);
+    }
   };
 
   const importApp = (appSpec) => {
@@ -773,50 +795,147 @@ function BuilderPage({ flash, addSpec, specs, library }) {
     flash(`✓ ${appSpec.name}에서 Task ${newTasks.length}개를 가져왔습니다.`);
   };
 
-  const generate = () => {
-    const specName = form.name || "MyApp-v1";
-    const specObj = {
-      app_id: "APP-" + Math.random().toString(36).substr(2, 6).toUpperCase(),
-      name: specName, version: form.version || "1.0.0",
-      env_vars: Object.fromEntries(form.envVars.filter(e => e.key).map(e => [e.key, e.value])),
-      tasks: form.tasks.map(t => ({
-        task_id: t.id, name: t.name || "unnamed-task", imported_from: t.imported_from || null,
-        components: t.components.map(c => ({
-          component_id: c.id, name: c.name || `component_${c.order}`,
-          image: { registry: c.image || "registry.avatar.io/default", tag: c.tag || "latest" },
-          resources: { gpu_type: c.gpuType, gpu_count: parseInt(c.gpuCount) || 2, memory: c.mem || "64GB" },
-          params: parseJSON(c.params)
+  // Open existing app for editing
+  const openSpec = (spec) => {
+    setForm({
+      name: spec.name, version: spec.version,
+      envVars: [{ key: "", value: "" }],
+      tasks: (spec.tasks || []).map(t => ({
+        id: t.id, name: t.name, imported_from: t.imported_from || null,
+        components: (t.components || []).map(c => ({
+          id: c.id, name: c.name, image: c.image?.split(":")[0] || c.image || "", tag: c.tag || "",
+          gpuType: c.gpu_type || c.gpuType || "A100", gpuCount: String(c.gpu_count || c.gpuCount || 2),
+          mem: c.mem || "64GB", params: c.params ? (typeof c.params === "string" ? c.params : JSON.stringify(c.params)) : "",
+          order: c.order || 1, libraryRef: c.libraryRef || null
         })),
-        workflow: t.workflow
-      })),
-      imported_apps: [...new Set(form.tasks.filter(t => t.imported_from).map(t => t.imported_from))].map(id => {
-        const s = specs.find(x => x.id === id); return { app_ref: id, name: s?.name || id };
-      }),
-      training_config: { episodes: 1000, learning_rate: 0.001, batch_size: 64, gamma: 0.99, max_steps_per_episode: 500 },
-      storage: { type: "distributed", path: "/training-data/" + specName.toLowerCase() },
-      created_at: new Date().toISOString()
-    };
-    setGenerated(specObj);
-    addSpec({
-      id: "APP-" + Math.random().toString(36).substr(2, 4).toUpperCase(),
-      name: specName, version: form.version || "1.0.0", status: "ready", created: now().split(" ")[0],
-      tasks: form.tasks.map(t => ({
-        id: t.id, name: t.name || "unnamed-task", imported_from: t.imported_from || null,
-        components: t.components.map(c => ({
-          id: c.id, name: c.name || `component_${c.order}`,
-          image: (c.image || "registry.avatar.io/default") + ":" + (c.tag || "latest"), tag: c.tag || "latest",
-          gpu_type: c.gpuType, gpu_count: parseInt(c.gpuCount) || 2, mem: c.mem || "64GB", params: parseJSON(c.params), order: c.order
-        })),
-        workflow: t.workflow
-      })),
-      imported_apps: []
+        workflow: t.workflow || []
+      }))
     });
-    flash("App 스펙 파일이 생성되었습니다.");
+    setEditingSpecId(spec.id);
+    setSelTaskIdx(0);
+    setActiveTab("app");
+    setGenerated(null);
+    setView("editor");
   };
 
+  const startNew = () => {
+    setForm({
+      name: "", version: "1.0.0",
+      envVars: [{ key: "", value: "" }],
+      tasks: [{ id: tid(), name: "default-task", imported_from: null, components: [], workflow: [] }]
+    });
+    setEditingSpecId(null);
+    setSelTaskIdx(0);
+    setActiveTab("app");
+    setGenerated(null);
+    setView("editor");
+  };
+
+  const saveSpec = () => {
+    const specName = form.name || "MyApp-v1";
+    const builtTasks = form.tasks.map(t => ({
+      id: t.id, name: t.name || "unnamed-task", imported_from: t.imported_from || null,
+      components: t.components.map(c => ({
+        id: c.id, name: c.name || `component_${c.order}`,
+        image: (c.image || "registry.avatar.io/default") + ":" + (c.tag || "latest"), tag: c.tag || "latest",
+        gpu_type: c.gpuType, gpu_count: parseInt(c.gpuCount) || 2, mem: c.mem || "64GB", params: parseJSON(c.params), order: c.order
+      })),
+      workflow: t.workflow
+    }));
+
+    if (editingSpecId) {
+      updateSpec(editingSpecId, { name: specName, version: form.version || "1.0.0", tasks: builtTasks });
+      flash("✓ App이 업데이트되었습니다.");
+    } else {
+      const specObj = {
+        app_id: "APP-" + Math.random().toString(36).substr(2, 6).toUpperCase(),
+        name: specName, version: form.version || "1.0.0",
+        env_vars: Object.fromEntries(form.envVars.filter(e => e.key).map(e => [e.key, e.value])),
+        tasks: form.tasks.map(t => ({
+          task_id: t.id, name: t.name || "unnamed-task", imported_from: t.imported_from || null,
+          components: t.components.map(c => ({
+            component_id: c.id, name: c.name || `component_${c.order}`,
+            image: { registry: c.image || "registry.avatar.io/default", tag: c.tag || "latest" },
+            resources: { gpu_type: c.gpuType, gpu_count: parseInt(c.gpuCount) || 2, memory: c.mem || "64GB" },
+            params: parseJSON(c.params)
+          })),
+          workflow: t.workflow
+        })),
+        imported_apps: [...new Set(form.tasks.filter(t => t.imported_from).map(t => t.imported_from))].map(id => {
+          const s = specs.find(x => x.id === id); return { app_ref: id, name: s?.name || id };
+        }),
+        training_config: { episodes: 1000, learning_rate: 0.001, batch_size: 64, gamma: 0.99, max_steps_per_episode: 500 },
+        storage: { type: "distributed", path: "/training-data/" + specName.toLowerCase() },
+        created_at: new Date().toISOString()
+      };
+      setGenerated(specObj);
+      addSpec({
+        id: "APP-" + Math.random().toString(36).substr(2, 4).toUpperCase(),
+        name: specName, version: form.version || "1.0.0", status: "ready", created: now().split(" ")[0],
+        tasks: builtTasks, imported_apps: []
+      });
+      flash("✓ App 스펙 파일이 생성되었습니다.");
+    }
+  };
+
+  /* ── LIST VIEW ── */
+  if (view === "list") return (
+    <div>
+      <Title sub="App 목록을 확인하고, 새 App을 만들거나 기존 App을 편집합니다.">Builder — App 개발</Title>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>App 목록 ({specs.length})</div>
+        <Btn v="primary" icon="builder" onClick={startNew}>새 App 만들기</Btn>
+      </div>
+
+      {specs.length === 0 ? (
+        <Card><p style={{ textAlign: "center", color: "#94A3B8", fontSize: 14, padding: 36 }}>등록된 App이 없습니다. "새 App 만들기"를 클릭하여 시작하세요.</p></Card>
+      ) : (
+        <div style={{ display: "grid", gap: 12 }}>
+          {specs.map(s => (
+            <Card key={s.id} style={{ cursor: "pointer", transition: "box-shadow .15s", border: "1px solid #E2E8F0" }} onClick={() => openSpec(s)}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                    <span style={{ fontSize: 16, fontWeight: 700 }}>{s.name}</span>
+                    <span style={{ fontSize: 12, color: "#94A3B8" }}>v{s.version}</span>
+                    <Badge v={s.status}>{LABEL[s.status] || s.status}</Badge>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#64748B", display: "flex", gap: 16 }}>
+                    <span>Task {getTaskCount(s)}개</span>
+                    <span>Component {getComponentCount(s)}개</span>
+                    <span>{getTotalGpuSummary(s)}, {getTotalMem(s)}</span>
+                    <span>생성: {s.created}</span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <Btn sz="sm" onClick={(e) => { e.stopPropagation(); openSpec(s); }}>편집</Btn>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  /* ── EDITOR VIEW ── */
   return (
     <div>
-      <Title sub="App을 생성하고, Task를 구성하며, Component를 배치하여 App 스펙 파일(JSON)을 생성합니다.">Builder — App 개발</Title>
+      {/* Back button + title */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <button onClick={() => setView("list")} style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 12px", borderRadius: 8, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 500, color: "#64748B", fontFamily: "inherit" }}>
+          ← App 목록
+        </button>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, letterSpacing: -0.3, color: "#0F172A" }}>
+            {editingSpecId ? `${form.name || "App"} 편집` : "새 App 만들기"}
+          </h2>
+          <p style={{ margin: "2px 0 0", fontSize: 12, color: "#64748B" }}>
+            {editingSpecId ? "기존 App의 Task와 Component를 수정합니다." : "App을 생성하고, Task를 구성하며, Component를 배치합니다."}
+          </p>
+        </div>
+      </div>
 
       {generated ? (
         <Card>
@@ -825,7 +944,10 @@ function BuilderPage({ flash, addSpec, specs, library }) {
               <I n="check" s={18} c="#166534" />
               <span style={{ fontSize: 14, fontWeight: 700, color: "#166534" }}>App 스펙 파일 생성 완료</span>
             </div>
-            <Btn sz="sm" onClick={() => setGenerated(null)}>새로 작성</Btn>
+            <div style={{ display: "flex", gap: 6 }}>
+              <Btn sz="sm" onClick={() => setView("list")}>App 목록으로</Btn>
+              <Btn sz="sm" onClick={() => setGenerated(null)}>계속 편집</Btn>
+            </div>
           </div>
           <pre style={{ background: "#0F172A", borderRadius: 10, padding: 18, fontSize: 12, fontFamily: "'JetBrains Mono',monospace", overflow: "auto", lineHeight: 1.7, color: "#E2E8F0", margin: 0 }}>{JSON.stringify(generated, null, 2)}</pre>
           <p style={{ margin: "14px 0 0", fontSize: 12, color: "#64748B" }}>→ Trainer 또는 테스트 실행 페이지에서 이 App을 선택할 수 있습니다.</p>
@@ -883,7 +1005,7 @@ function BuilderPage({ flash, addSpec, specs, library }) {
                 {showImport && (
                   <div style={{ marginBottom: 14, padding: 14, background: "#EFF6FF", borderRadius: 10, border: "1px solid #BFDBFE" }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: "#1E40AF", marginBottom: 8 }}>다른 App에서 Task 가져오기</div>
-                    {specs.filter(s => s.status === "ready").map(s => (
+                    {specs.filter(s => s.status === "ready" && s.id !== editingSpecId).map(s => (
                       <div key={s.id} onClick={() => importApp(s)} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #E2E8F0", cursor: "pointer", marginBottom: 4, background: "#fff", fontSize: 13, display: "flex", justifyContent: "space-between" }}>
                         <span><b>{s.name}</b> — Task {getTaskCount(s)}개, Component {getComponentCount(s)}개</span>
                         <span style={{ color: "#1E40AF", fontWeight: 600 }}>Import</span>
@@ -908,7 +1030,7 @@ function BuilderPage({ flash, addSpec, specs, library }) {
                 ))}
               </Card>
 
-              <Btn v="primary" sz="lg" onClick={generate}>App 스펙 파일 생성</Btn>
+              <Btn v="primary" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
             </>
           )}
 
@@ -934,7 +1056,6 @@ function BuilderPage({ flash, addSpec, specs, library }) {
                     <Btn sz="sm" v="accent" onClick={() => {}}>라이브러리에서 추가 ▾</Btn>
                   </div>
                 </div>
-                {/* Library quick-add */}
                 {library && library.length > 0 && (
                   <div style={{ marginBottom: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
                     {library.map(lc => (
@@ -984,29 +1105,52 @@ function BuilderPage({ flash, addSpec, specs, library }) {
                 })}
               </Card>
 
-              {/* 의존성 연결 */}
+              {/* GUI-based interactive workflow connections */}
               <Card style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>의존성 연결</div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 4 }}>From</label>
-                    <select value={edgeFrom} onChange={e => { setEdgeFrom(e.target.value); setEdgeError(""); }} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", background: "#fff", boxSizing: "border-box" }}>
-                      <option value="">선택...</option>
-                      {curTask.components.map(c => <option key={c.id} value={c.id}>{c.name || `component_${c.order}`}</option>)}
-                    </select>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 4 }}>To</label>
-                    <select value={edgeTo} onChange={e => { setEdgeTo(e.target.value); setEdgeError(""); }} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", background: "#fff", boxSizing: "border-box" }}>
-                      <option value="">선택...</option>
-                      {curTask.components.map(c => <option key={c.id} value={c.id}>{c.name || `component_${c.order}`}</option>)}
-                    </select>
-                  </div>
-                  <div style={{ paddingTop: 18 }}><Btn sz="sm" v="primary" onClick={addEdge}>추가</Btn></div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>워크플로우 연결</div>
+                  <Btn sz="sm" v={connectMode ? "danger" : "primary"} icon={connectMode ? "close" : "link"} onClick={() => { setConnectMode(!connectMode); setConnectSource(null); }}>
+                    {connectMode ? "연결 모드 종료" : "연결 추가"}
+                  </Btn>
                 </div>
-                {edgeError && <div style={{ fontSize: 12, color: "#B91C1C", marginBottom: 8 }}>{edgeError}</div>}
+
+                {/* Interactive node grid for connections */}
+                {curTask.components.length >= 2 && (
+                  <div style={{ marginBottom: 14, padding: 16, background: connectMode ? "#EFF6FF" : "#F8FAFC", borderRadius: 10, border: `1px solid ${connectMode ? "#93C5FD" : "#E2E8F0"}`, transition: "all .15s" }}>
+                    {connectMode && (
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#1E40AF", marginBottom: 10 }}>
+                        {connectSource ? `✓ 소스: ${curTask.components.find(c => c.id === connectSource)?.name || "?"} — 타겟 노드를 클릭하세요` : "소스 노드를 클릭하세요"}
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      {curTask.components.map(c => {
+                        const isSource = connectSource === c.id;
+                        const hasOutgoing = curTask.workflow.some(e => e.from === c.id);
+                        const hasIncoming = curTask.workflow.some(e => e.to === c.id);
+                        return (
+                          <div key={c.id} onClick={() => handleNodeClick(c.id)} style={{
+                            padding: "10px 16px", borderRadius: 10, cursor: connectMode ? "pointer" : "default",
+                            border: `2px solid ${isSource ? "#1D4ED8" : connectMode ? "#93C5FD" : "#E2E8F0"}`,
+                            background: isSource ? "#DBEAFE" : "#fff",
+                            transition: "all .15s", minWidth: 120, textAlign: "center",
+                            boxShadow: isSource ? "0 0 0 3px rgba(29,78,216,.15)" : "none"
+                          }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#0F172A" }}>{c.name || `comp_${c.order}`}</div>
+                            <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>#{c.order}</div>
+                            <div style={{ display: "flex", gap: 4, justifyContent: "center", marginTop: 4 }}>
+                              {hasIncoming && <span style={{ fontSize: 9, background: "#DCFCE7", color: "#166534", padding: "1px 5px", borderRadius: 3 }}>IN</span>}
+                              {hasOutgoing && <span style={{ fontSize: 9, background: "#DBEAFE", color: "#1E40AF", padding: "1px 5px", borderRadius: 3 }}>OUT</span>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Existing connections */}
                 {curTask.workflow.length === 0 ? (
-                  <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 12, padding: 10 }}>연결이 없습니다.</p>
+                  <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 12, padding: 10 }}>연결이 없습니다. "연결 추가" 버튼을 눌러 노드를 클릭하여 연결하세요.</p>
                 ) : curTask.workflow.map((e, i) => {
                   const fn = curTask.components.find(c => c.id === e.from);
                   const tn = curTask.components.find(c => c.id === e.to);
@@ -1021,9 +1165,29 @@ function BuilderPage({ flash, addSpec, specs, library }) {
                     </div>
                   );
                 })}
+
+                {/* Dropdown fallback */}
+                {curTask.components.length >= 2 && (
+                  <div style={{ marginTop: 10, padding: 10, background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#94A3B8", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>직접 입력</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <select value={edgeFrom} onChange={e => { setEdgeFrom(e.target.value); setEdgeError(""); }} style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 12, outline: "none", background: "#fff" }}>
+                        <option value="">From...</option>
+                        {curTask.components.map(c => <option key={c.id} value={c.id}>{c.name || `component_${c.order}`}</option>)}
+                      </select>
+                      <span style={{ color: "#94A3B8", fontSize: 12 }}>→</span>
+                      <select value={edgeTo} onChange={e => { setEdgeTo(e.target.value); setEdgeError(""); }} style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 12, outline: "none", background: "#fff" }}>
+                        <option value="">To...</option>
+                        {curTask.components.map(c => <option key={c.id} value={c.id}>{c.name || `component_${c.order}`}</option>)}
+                      </select>
+                      <Btn sz="sm" v="primary" onClick={addEdgeDropdown}>추가</Btn>
+                    </div>
+                    {edgeError && <div style={{ fontSize: 11, color: "#B91C1C", marginTop: 4 }}>{edgeError}</div>}
+                  </div>
+                )}
               </Card>
 
-              <Btn v="primary" sz="lg" onClick={generate}>App 스펙 파일 생성</Btn>
+              <Btn v="primary" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
             </>
           )}
 
@@ -1046,7 +1210,7 @@ function BuilderPage({ flash, addSpec, specs, library }) {
                 <WorkflowDiagram components={curTask.components} workflow={curTask.workflow} />
               </Card>
 
-              <Btn v="primary" sz="lg" onClick={generate}>App 스펙 파일 생성</Btn>
+              <Btn v="primary" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
             </>
           )}
         </>
