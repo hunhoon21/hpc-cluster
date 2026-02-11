@@ -720,6 +720,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
   const [showImport, setShowImport] = useState(false);
   const [connectMode, setConnectMode] = useState(false);
   const [connectSource, setConnectSource] = useState(null);
+  const [expandedComp, setExpandedComp] = useState(null);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const parseJSON = (s) => { try { return JSON.parse(s); } catch { return s || {}; } };
@@ -776,16 +777,12 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
   };
 
   const handleNodeClick = (compId) => {
-    if (!connectMode) return;
-    if (!connectSource) {
-      setConnectSource(compId);
-    } else {
-      const err = addEdge(connectSource, compId);
-      if (err) { flash("⚠ " + err); }
-      else { flash("✓ 연결이 추가되었습니다."); }
-      setConnectSource(null);
-      setConnectMode(false);
-    }
+    if (!connectSource) return;
+    if (connectSource === compId) { setConnectSource(null); return; }
+    const err = addEdge(connectSource, compId);
+    if (err) { flash("⚠ " + err); }
+    else { flash("✓ 연결이 추가되었습니다."); }
+    setConnectSource(null);
   };
 
   const importApp = (appSpec) => {
@@ -1048,6 +1045,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                 </div>
               </Card>
 
+              {/* Component Visual Nodes + Workflow */}
               <Card style={{ marginBottom: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                   <div style={{ fontSize: 14, fontWeight: 700 }}>Component ({curTask.components.length})</div>
@@ -1065,125 +1063,130 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                     ))}
                   </div>
                 )}
+
                 {curTask.components.length === 0 ? (
                   <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 16 }}>컴포넌트를 추가하세요. 라이브러리에서 선택하거나 직접 추가할 수 있습니다.</p>
-                ) : curTask.components.map((c, i) => {
-                  const gpuNum = parseInt(c.gpuCount) || 0;
-                  const memNum = parseInt(c.mem) || 0;
-                  const overThreshold = gpuNum >= THRESHOLD.gpu || memNum >= THRESHOLD.mem;
-                  return (
-                    <div key={c.id} style={{ padding: 16, border: "1px solid #E2E8F0", borderRadius: 10, marginBottom: 10, background: "#FAFBFC" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>Component #{c.order}: {c.name || "unnamed"}</span>
-                          {c.libraryRef && <span style={{ fontSize: 10, background: "#EFF6FF", color: "#1E40AF", padding: "2px 6px", borderRadius: 4 }}>LIB</span>}
-                          <span style={{ display: "inline-flex", padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 600, background: overThreshold ? "#FEF3C7" : "#DCFCE7", color: overThreshold ? "#92400E" : "#166534" }}>
-                            {overThreshold ? "임계치 초과" : "임계치 미만"}
-                          </span>
-                        </div>
-                        <button onClick={() => deleteComponent(i)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={15} c="#94A3B8" /></button>
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                        <InputField label="이름" value={c.name} onChange={e => setComp(selTaskIdx, i, "name", e.target.value)} placeholder="component-name" />
-                        <InputField label="순서" value={String(c.order)} disabled />
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                        <InputField label="Docker 이미지 주소" value={c.image} onChange={e => setComp(selTaskIdx, i, "image", e.target.value)} placeholder="registry.avatar.io/my-image" mono />
-                        <InputField label="태그" value={c.tag} onChange={e => setComp(selTaskIdx, i, "tag", e.target.value)} placeholder="latest" mono />
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
-                        <InputField label="GPU 유형" value={c.gpuType} onChange={e => setComp(selTaskIdx, i, "gpuType", e.target.value)} placeholder="A100" />
-                        <InputField label="GPU 수" value={c.gpuCount} onChange={e => setComp(selTaskIdx, i, "gpuCount", e.target.value)} placeholder="2" />
-                        <InputField label="메모리" value={c.mem} onChange={e => setComp(selTaskIdx, i, "mem", e.target.value)} placeholder="64GB" />
-                      </div>
-                      <div>
-                        <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 5 }}>파라미터 JSON</label>
-                        <textarea value={c.params} onChange={e => setComp(selTaskIdx, i, "params", e.target.value)} placeholder='{"lr": 0.001, "epochs": 30}' rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </Card>
-
-              {/* GUI-based interactive workflow connections */}
-              <Card style={{ marginBottom: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>워크플로우 연결</div>
-                  <Btn sz="sm" v={connectMode ? "danger" : "primary"} icon={connectMode ? "close" : "link"} onClick={() => { setConnectMode(!connectMode); setConnectSource(null); }}>
-                    {connectMode ? "연결 모드 종료" : "연결 추가"}
-                  </Btn>
-                </div>
-
-                {/* Interactive node grid for connections */}
-                {curTask.components.length >= 2 && (
-                  <div style={{ marginBottom: 14, padding: 16, background: connectMode ? "#EFF6FF" : "#F8FAFC", borderRadius: 10, border: `1px solid ${connectMode ? "#93C5FD" : "#E2E8F0"}`, transition: "all .15s" }}>
-                    {connectMode && (
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "#1E40AF", marginBottom: 10 }}>
-                        {connectSource ? `✓ 소스: ${curTask.components.find(c => c.id === connectSource)?.name || "?"} — 타겟 노드를 클릭하세요` : "소스 노드를 클릭하세요"}
+                ) : (
+                  <>
+                    {/* Connect mode indicator */}
+                    {connectSource && (
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#1E40AF", marginBottom: 10, padding: "8px 12px", background: "#EFF6FF", borderRadius: 8, border: "1px solid #93C5FD", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <span>→ 소스: <strong>{curTask.components.find(c => c.id === connectSource)?.name || "?"}</strong> — 타겟 노드를 클릭하세요</span>
+                        <button onClick={() => setConnectSource(null)} style={{ padding: "2px 10px", borderRadius: 4, border: "1px solid #93C5FD", background: "#DBEAFE", cursor: "pointer", fontSize: 11, color: "#1E40AF", fontFamily: "inherit", fontWeight: 600 }}>취소</button>
                       </div>
                     )}
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                      {curTask.components.map(c => {
+
+                    {/* Visual Node Grid */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginBottom: 14 }}>
+                      {curTask.components.map((c, i) => {
                         const isSource = connectSource === c.id;
+                        const isTarget = connectSource && connectSource !== c.id;
+                        const gpuNum = parseInt(c.gpuCount) || 0;
+                        const memNum = parseInt(c.mem) || 0;
+                        const overThreshold = gpuNum >= THRESHOLD.gpu || memNum >= THRESHOLD.mem;
                         const hasOutgoing = curTask.workflow.some(e => e.from === c.id);
                         const hasIncoming = curTask.workflow.some(e => e.to === c.id);
+                        const isExpanded = expandedComp === c.id;
                         return (
-                          <div key={c.id} onClick={() => handleNodeClick(c.id)} style={{
-                            padding: "10px 16px", borderRadius: 10, cursor: connectMode ? "pointer" : "default",
-                            border: `2px solid ${isSource ? "#1D4ED8" : connectMode ? "#93C5FD" : "#E2E8F0"}`,
-                            background: isSource ? "#DBEAFE" : "#fff",
-                            transition: "all .15s", minWidth: 120, textAlign: "center",
-                            boxShadow: isSource ? "0 0 0 3px rgba(29,78,216,.15)" : "none"
+                          <div key={c.id} onClick={() => { if (isTarget) handleNodeClick(c.id); }} style={{
+                            padding: 14, borderRadius: 12, cursor: isTarget ? "pointer" : "default",
+                            border: `2px solid ${isSource ? "#1D4ED8" : isTarget ? "#93C5FD" : isExpanded ? "#0F172A" : "#E2E8F0"}`,
+                            background: isSource ? "#DBEAFE" : isTarget ? "#F0F9FF" : "#FAFBFC",
+                            transition: "all .15s",
+                            boxShadow: isSource ? "0 0 0 3px rgba(29,78,216,.15)" : isTarget ? "0 0 0 2px rgba(147,197,253,.2)" : "none"
                           }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: "#0F172A" }}>{c.name || `comp_${c.order}`}</div>
-                            <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>#{c.order}</div>
-                            <div style={{ display: "flex", gap: 4, justifyContent: "center", marginTop: 4 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A" }}>{c.name || `comp_${c.order}`}</div>
+                                <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>#{c.order} · {c.gpuType} ×{c.gpuCount} · {c.mem}</div>
+                              </div>
+                              <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+                                {c.libraryRef && <span style={{ fontSize: 9, background: "#EFF6FF", color: "#1E40AF", padding: "2px 5px", borderRadius: 4 }}>LIB</span>}
+                                <span style={{ fontSize: 9, padding: "2px 5px", borderRadius: 4, fontWeight: 600, background: overThreshold ? "#FEF3C7" : "#DCFCE7", color: overThreshold ? "#92400E" : "#166534" }}>
+                                  {overThreshold ? "초과" : "정상"}
+                                </span>
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
                               {hasIncoming && <span style={{ fontSize: 9, background: "#DCFCE7", color: "#166534", padding: "1px 5px", borderRadius: 3 }}>IN</span>}
                               {hasOutgoing && <span style={{ fontSize: 9, background: "#DBEAFE", color: "#1E40AF", padding: "1px 5px", borderRadius: 3 }}>OUT</span>}
+                            </div>
+                            <div style={{ display: "flex", gap: 4, borderTop: "1px solid #E2E8F0", paddingTop: 8 }}>
+                              <button title="연결" aria-label="연결" onClick={(e) => { e.stopPropagation(); setConnectSource(isSource ? null : c.id); }} style={{
+                                flex: 1, padding: "5px 0", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 700,
+                                border: `1px solid ${isSource ? "#1D4ED8" : "#E2E8F0"}`,
+                                background: isSource ? "#1D4ED8" : "#fff",
+                                color: isSource ? "#fff" : "#64748B"
+                              }}>→</button>
+                              <button title="편집" aria-label="편집" onClick={(e) => { e.stopPropagation(); setExpandedComp(isExpanded ? null : c.id); }} style={{
+                                flex: 1, padding: "5px 0", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: "inherit",
+                                border: `1px solid ${isExpanded ? "#0F172A" : "#E2E8F0"}`,
+                                background: isExpanded ? "#0F172A" : "#fff",
+                                color: isExpanded ? "#fff" : "#64748B"
+                              }}>✎</button>
+                              <button title="삭제" aria-label="삭제" onClick={(e) => { e.stopPropagation(); deleteComponent(i); if (expandedComp === c.id) setExpandedComp(null); }} style={{
+                                padding: "5px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: "inherit",
+                                border: "1px solid #FEE2E2", background: "#FFF5F5", color: "#EF4444"
+                              }}>×</button>
                             </div>
                           </div>
                         );
                       })}
                     </div>
-                  </div>
-                )}
 
-                {/* Existing connections */}
-                {curTask.workflow.length === 0 ? (
-                  <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 12, padding: 10 }}>연결이 없습니다. "연결 추가" 버튼을 눌러 노드를 클릭하여 연결하세요.</p>
-                ) : curTask.workflow.map((e, i) => {
-                  const fn = curTask.components.find(c => c.id === e.from);
-                  const tn = curTask.components.find(c => c.id === e.to);
-                  return (
-                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", borderRadius: 6, background: "#F8FAFC", border: "1px solid #E2E8F0", marginBottom: 4 }}>
-                      <span style={{ fontSize: 13, color: "#334155" }}>
-                        <span style={{ fontWeight: 600 }}>{fn?.name || e.from}</span>
-                        <span style={{ color: "#94A3B8", margin: "0 8px" }}> → </span>
-                        <span style={{ fontWeight: 600 }}>{tn?.name || e.to}</span>
-                      </span>
-                      <button onClick={() => setTask(selTaskIdx, "workflow", curTask.workflow.filter((_, j) => j !== i))} style={{ padding: 2, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={14} c="#94A3B8" /></button>
-                    </div>
-                  );
-                })}
+                    {/* Expanded Component Edit Panel */}
+                    {expandedComp && (() => {
+                      const compIdx = curTask.components.findIndex(c => c.id === expandedComp);
+                      if (compIdx < 0) return null;
+                      const c = curTask.components[compIdx];
+                      return (
+                        <div style={{ padding: 16, border: "2px solid #0F172A", borderRadius: 12, marginBottom: 14, background: "#FAFBFC" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>Component #{c.order}: {c.name || "unnamed"} — 상세 편집</span>
+                            <button onClick={() => setExpandedComp(null)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={15} c="#94A3B8" /></button>
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                            <InputField label="이름" value={c.name} onChange={e => setComp(selTaskIdx, compIdx, "name", e.target.value)} placeholder="component-name" />
+                            <InputField label="순서" value={String(c.order)} disabled />
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                            <InputField label="Docker 이미지 주소" value={c.image} onChange={e => setComp(selTaskIdx, compIdx, "image", e.target.value)} placeholder="registry.avatar.io/my-image" mono />
+                            <InputField label="태그" value={c.tag} onChange={e => setComp(selTaskIdx, compIdx, "tag", e.target.value)} placeholder="latest" mono />
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                            <InputField label="GPU 유형" value={c.gpuType} onChange={e => setComp(selTaskIdx, compIdx, "gpuType", e.target.value)} placeholder="A100" />
+                            <InputField label="GPU 수" value={c.gpuCount} onChange={e => setComp(selTaskIdx, compIdx, "gpuCount", e.target.value)} placeholder="2" />
+                            <InputField label="메모리" value={c.mem} onChange={e => setComp(selTaskIdx, compIdx, "mem", e.target.value)} placeholder="64GB" />
+                          </div>
+                          <div>
+                            <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 5 }}>파라미터 JSON</label>
+                            <textarea value={c.params} onChange={e => setComp(selTaskIdx, compIdx, "params", e.target.value)} placeholder='{"lr": 0.001, "epochs": 30}' rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+                          </div>
+                        </div>
+                      );
+                    })()}
 
-                {/* Dropdown fallback */}
-                {curTask.components.length >= 2 && (
-                  <div style={{ marginTop: 10, padding: 10, background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "#94A3B8", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>직접 입력</div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <select value={edgeFrom} onChange={e => { setEdgeFrom(e.target.value); setEdgeError(""); }} style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 12, outline: "none", background: "#fff" }}>
-                        <option value="">From...</option>
-                        {curTask.components.map(c => <option key={c.id} value={c.id}>{c.name || `component_${c.order}`}</option>)}
-                      </select>
-                      <span style={{ color: "#94A3B8", fontSize: 12 }}>→</span>
-                      <select value={edgeTo} onChange={e => { setEdgeTo(e.target.value); setEdgeError(""); }} style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 12, outline: "none", background: "#fff" }}>
-                        <option value="">To...</option>
-                        {curTask.components.map(c => <option key={c.id} value={c.id}>{c.name || `component_${c.order}`}</option>)}
-                      </select>
-                      <Btn sz="sm" v="primary" onClick={addEdgeDropdown}>추가</Btn>
+                    {/* Workflow Connections */}
+                    <div style={{ padding: 12, background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 8 }}>워크플로우 연결 ({curTask.workflow.length})</div>
+                      {curTask.workflow.length === 0 ? (
+                        <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 12, padding: 8, margin: 0 }}>연결이 없습니다. 컴포넌트의 → 버튼을 눌러 연결하세요.</p>
+                      ) : curTask.workflow.map((e, i) => {
+                        const fn = curTask.components.find(c => c.id === e.from);
+                        const tn = curTask.components.find(c => c.id === e.to);
+                        return (
+                          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", borderRadius: 6, background: "#fff", border: "1px solid #E2E8F0", marginBottom: 4 }}>
+                            <span style={{ fontSize: 13, color: "#334155" }}>
+                              <span style={{ fontWeight: 600 }}>{fn?.name || e.from}</span>
+                              <span style={{ color: "#94A3B8", margin: "0 8px" }}> → </span>
+                              <span style={{ fontWeight: 600 }}>{tn?.name || e.to}</span>
+                            </span>
+                            <button onClick={() => setTask(selTaskIdx, "workflow", curTask.workflow.filter((_, j) => j !== i))} style={{ padding: 2, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={14} c="#94A3B8" /></button>
+                          </div>
+                        );
+                      })}
                     </div>
-                    {edgeError && <div style={{ fontSize: 11, color: "#B91C1C", marginTop: 4 }}>{edgeError}</div>}
-                  </div>
+                  </>
                 )}
               </Card>
 

@@ -95,7 +95,7 @@ test.describe('AVATAR OnE v1.5 E2E Tests', () => {
     await expect(nameInput).toHaveValue('');
   });
 
-  test('Test 6: Builder - Task editing with component add', async ({ page }) => {
+  test('Test 6: Builder - Task editing with visual component nodes', async ({ page }) => {
     await page.goto('/');
 
     // Navigate to Builder and open existing App
@@ -105,14 +105,31 @@ test.describe('AVATAR OnE v1.5 E2E Tests', () => {
     // Switch to Task 편집 tab
     await page.getByRole('tab', { name: 'Task 편집' }).click();
 
-    // Verify Task selector and Component section are visible
+    // Verify Component section header visible
     await expect(page.getByText(/Component/i).first()).toBeVisible();
 
     // Verify "직접 추가" button exists
     await expect(page.getByRole('button', { name: /직접 추가/i })).toBeVisible();
+
+    // Verify visual node cards are displayed (component names visible)
+    await expect(page.getByText('data-loader').first()).toBeVisible();
+    await expect(page.getByText('preprocessor').first()).toBeVisible();
+    await expect(page.getByText('trainer').first()).toBeVisible();
+
+    // Verify arrow (→) buttons exist on nodes for workflow connections
+    const arrowButtons = page.getByRole('button', { name: '연결' });
+    await expect(arrowButtons.first()).toBeVisible();
+
+    // Verify edit (✎) buttons exist on nodes
+    const editButtons = page.getByRole('button', { name: '편집' });
+    await expect(editButtons.first()).toBeVisible();
+
+    // Click edit button to expand component detail
+    await editButtons.first().click();
+    await expect(page.getByText(/상세 편집/i)).toBeVisible();
   });
 
-  test('Test 7: Builder - GUI workflow connection', async ({ page }) => {
+  test('Test 7: Builder - arrow button workflow connection', async ({ page }) => {
     await page.goto('/');
 
     // Navigate to Builder and open existing App
@@ -122,17 +139,21 @@ test.describe('AVATAR OnE v1.5 E2E Tests', () => {
     // Switch to Task 편집 tab
     await page.getByRole('tab', { name: 'Task 편집' }).click();
 
-    // Verify "연결 추가" button exists for GUI-based connection
-    await expect(page.getByRole('button', { name: /연결 추가/i })).toBeVisible();
+    // Verify arrow (→) buttons exist on component nodes
+    const arrowButtons = page.getByRole('button', { name: '연결' });
+    await expect(arrowButtons.first()).toBeVisible();
 
-    // Click to enter connect mode
-    await page.getByRole('button', { name: /연결 추가/i }).click();
+    // Click arrow button on first component to enter connect mode
+    await arrowButtons.first().click();
 
-    // Verify connect mode is active
-    await expect(page.getByText(/소스 노드를 클릭하세요/i)).toBeVisible();
+    // Verify connect mode is active with source info
+    await expect(page.getByText(/타겟 노드를 클릭하세요/i)).toBeVisible();
 
-    // Exit connect mode
-    await page.getByRole('button', { name: /연결 모드 종료/i }).click();
+    // Click cancel to exit connect mode
+    await page.getByRole('button', { name: /취소/i }).click();
+
+    // Verify connect mode exited
+    await expect(page.getByText(/타겟 노드를 클릭하세요/i)).not.toBeVisible();
   });
 
   test('Test 8: Component Library page', async ({ page }) => {
