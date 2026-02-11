@@ -156,6 +156,23 @@ test.describe('AVATAR OnE v1.5 E2E Tests', () => {
     await expect(page.getByText(/타겟 노드를 클릭하세요/i)).not.toBeVisible();
   });
 
+  test('Test 7b: Builder - real-time workflow preview in Task editor', async ({ page }) => {
+    await page.goto('/');
+
+    // Navigate to Builder and open existing App with connections
+    await page.getByRole('navigation').getByRole('button', { name: 'Builder' }).click();
+    await page.getByText('LLM-FineTune-v3').click();
+
+    // Switch to Task 편집 tab
+    await page.getByRole('tab', { name: 'Task 편집' }).click();
+
+    // Verify real-time workflow preview is visible in the Task editor
+    await expect(page.getByText(/워크플로우 미리보기/i)).toBeVisible();
+
+    // Verify the SVG diagram is rendered (existing app has workflow connections)
+    await expect(page.locator('svg').first()).toBeVisible();
+  });
+
   test('Test 8: Component Library page', async ({ page }) => {
     await page.goto('/');
 

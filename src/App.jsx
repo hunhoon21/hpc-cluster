@@ -1186,6 +1186,12 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                         );
                       })}
                     </div>
+
+                    {/* Real-time Workflow Diagram */}
+                    <div style={{ marginTop: 14, padding: 14, background: "#fff", borderRadius: 10, border: "1px solid #E2E8F0" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 8 }}>워크플로우 미리보기</div>
+                      <WorkflowDiagram components={curTask.components} workflow={curTask.workflow} />
+                    </div>
                   </>
                 )}
               </Card>
