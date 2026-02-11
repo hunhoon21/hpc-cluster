@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Convert AVATAR OnE 플랫폼 기능명세서 v1.4 markdown to DOCX.
+Convert AVATAR OnE 플랫폼 기능명세서 v1.5 markdown to DOCX.
 
 Replicates the exact layout/design system of the v1.2 docx file:
 - Cover page with centered title, subtitle, metadata table
@@ -354,7 +354,7 @@ def _add_cover_page(doc):
 
     # Metadata table (4 x 2)
     meta_data = [
-        ("\ubc84\uc804", "1.4"),
+        ("\ubc84\uc804", "1.5"),
         ("\uc791\uc131\uc77c", "2025-02-02"),
         ("\uc218\uc815\uc77c", "2026-02-09"),
         ("\ub300\uc0c1", "\uace0\uac1d \uc804\ub2ec\uc6a9"),
@@ -887,8 +887,8 @@ def _build_document(md_text):
 
 def main():
     base_dir = Path(__file__).parent.parent
-    md_file = base_dir / "docs/AVATAR_OnE_\ud50c\ub7ab\ud3fc_\uae30\ub2a5\uba85\uc138\uc11c_v1_4.md"
-    docx_file = base_dir / "docs/AVATAR_OnE_\ud50c\ub7ab\ud3fc_\uae30\ub2a5\uba85\uc138\uc11c_v1_4.docx"
+    md_file = base_dir / "docs/AVATAR_OnE_\ud50c\ub7ab\ud3fc_\uae30\ub2a5\uba85\uc138\uc11c_v1_5.md"
+    docx_file = base_dir / "docs/AVATAR_OnE_\ud50c\ub7ab\ud3fc_\uae30\ub2a5\uba85\uc138\uc11c_v1_5.docx"
 
     if not md_file.exists():
         print(f"Error: markdown file not found: {md_file}")
