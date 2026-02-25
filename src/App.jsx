@@ -1,7 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 /* ═══════════════════════════════════════════════════════
-   AVATAR OnE  v1.5  —  ML/RL Training Platform Demo
+   AVATAR OnE  v1.6  —  ML/RL Training Platform Demo
+
+   v1.6 Changes:
+   · Developer pre-test execution in Trainer (TR-09)
+   · Test result attachment to training request (TR-10)
+   · Admin review of attached results (AP-06)
+   · loopTest data structure: attachedToRequest, reviewedBy, reviewedAt
 
    v1.5 Changes:
    · Pipeline→Avatar App terminology transition
@@ -11,7 +17,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
    · Mandatory minimum execution test for all approval-requiring workloads
    · App Import (BL-12)
 
-   Flow: Builder → Trainer → Test/Approval → Queue → Run → Model
+   Flow: Builder → Trainer (+ pre-test) → Review/Approval → Queue → Run → Model
    ═══════════════════════════════════════════════════════ */
 
 const uid = () => "WL-" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 3).toUpperCase();
@@ -68,7 +74,7 @@ const INIT_TEST_RUNS = [
 ];
 
 const INIT_WORKLOADS = [
-  { id: "WL-DEMO1", name: "BERT-Classifier", specId: "APP-001", requester: "정연구원", status: "completed", priority: "high", gpu: "A100 x 2", mem: "64GB", submitted: "2025-01-30 11:00", approved: "2025-01-30 12:00", testRunRef: "RUN-INIT01", completedAt: "2025-01-31 09:15", needsApproval: true, loopTest: { status: "passed", episodes: 5, results: { successRate: "100%", avgDuration: "0.34s", log: "Run 1: SUCCESS (0.32s)\nRun 3: SUCCESS (0.35s)\nRun 5: SUCCESS (0.34s)" }, executedBy: "admin", executedAt: "2025-01-30 11:30" } },
+  { id: "WL-DEMO1", name: "BERT-Classifier", specId: "APP-001", requester: "정연구원", status: "completed", priority: "high", gpu: "A100 x 2", mem: "64GB", submitted: "2025-01-30 11:00", approved: "2025-01-30 12:00", testRunRef: "RUN-INIT01", completedAt: "2025-01-31 09:15", needsApproval: true, loopTest: { status: "passed", episodes: 5, results: { successRate: "100%", avgDuration: "0.34s", log: "Run 1: SUCCESS (0.32s)\nRun 3: SUCCESS (0.35s)\nRun 5: SUCCESS (0.34s)" }, executedBy: "developer", executedAt: "2025-01-30 11:30", attachedToRequest: true, reviewedBy: "admin", reviewedAt: "2025-01-30 12:00" } },
 ];
 
 const INIT_MODELS = [
@@ -82,7 +88,7 @@ const RESOURCES = {
   cpu: { total: 256, label: "CPU", unit: "코어", color: "#047857" },
 };
 
-const LABEL = { high: "높음", medium: "보통", low: "낮음", running: "실행 중", queued: "대기", pending: "승인대기", completed: "완료", failed: "실패", rejected: "반려", ready: "준비됨", draft: "작성중", passed: "통과", waiting: "대기중", immediate: "자동승인" };
+const LABEL = { high: "높음", medium: "보통", low: "낮음", running: "실행 중", queued: "대기", pending: "승인대기", completed: "완료", failed: "실패", rejected: "반려", ready: "준비됨", draft: "작성중", passed: "통과", waiting: "대기중", immediate: "자동승인", reviewed: "확인완료", attached: "결과첨부" };
 
 /* ─── Icons (SVG path data) ─── */
 const ICONS = { builder: "M3 3h18v18H3V3zm2 2v14h14V5H5zm2 2h4v4H7V7zm6 0h4v2h-4V7zm0 4h4v2h-4v-2zM7 13h10v2H7v-2z", play: "M8 5v14l11-7L8 5z", check: "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z", queue: "M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z", monitor: "M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z", model: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5", user: "M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z", admin: "M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z", up: "M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z", down: "M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41 1.41z", close: "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z", test: "M19.8 18.4L14 10.67V6.5l1.35-1.69c.26-.33.03-.81-.39-.81H9.04c-.42 0-.65.48-.39.81L10 6.5v4.17L4.2 18.4c-.49.66-.02 1.6.8 1.6h14c.82 0 1.29-.94.8-1.6z", dl: "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z", home: "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z", file: "M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z", run: "M8 5v14l11-7L8 5z", dot: "M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4z", link: "M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z", threshold: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" };
@@ -302,24 +308,32 @@ export default function App() {
   /* ─── Workload Submission ─── */
   const addWorkload = useCallback((data) => {
     const needs = exceedsThreshold(data.gpu, data.mem);
+    const attachedTest = data.attachedLoopTest || null;
     const wl = {
       id: uid(), ...data,
       status: needs ? "pending" : "queued",
       needsApproval: needs,
       submitted: now(), approved: null, completedAt: null,
-      ...(needs ? { loopTest: { status: "pending", episodes: null, results: null, executedBy: null, executedAt: null } } : {})
+      ...(needs ? { loopTest: attachedTest
+        ? { ...attachedTest, attachedToRequest: true, reviewedBy: null, reviewedAt: null }
+        : { status: "pending", episodes: null, results: null, executedBy: null, executedAt: null, attachedToRequest: false, reviewedBy: null, reviewedAt: null }
+      } : {})
     };
+    delete wl.attachedLoopTest;
     setWorkloads(prev => [...prev, wl]);
 
     if (needs) {
-      flash("⚠ 자원 임계치 초과 — 관리자 승인이 필요합니다.");
+      flash(attachedTest
+        ? "⚠ 자원 임계치 초과 — 테스트 결과가 첨부되었습니다. 관리자 확인 후 승인됩니다."
+        : "⚠ 자원 임계치 초과 — 관리자 승인이 필요합니다."
+      );
     } else {
       flash("✓ 자원 임계치 미만 — 실행 대기열에 진입합니다.");
     }
   }, [flash]);
 
   /* ─── Loop Test (minimum execution test for approval) ─── */
-  const runLoopTest = useCallback((id) => {
+  const runLoopTest = useCallback((id, executedBy = "admin") => {
     setWorkloads(wl => wl.map(w => w.id === id ? { ...w, loopTest: { ...w.loopTest, status: "running" } } : w));
     flash("최소 실행 테스트를 시작합니다...");
     setTimeout(() => {
@@ -331,11 +345,17 @@ export default function App() {
           results: isRL
             ? { convergence: true, avgReward: 85.3, finalReward: 92.1, log: "Episode 1: reward=72.1\nEpisode 5: reward=85.3\nEpisode 10: reward=92.1\nConvergence: YES" }
             : { successRate: "100%", avgDuration: "0.34s", log: "Run 1: SUCCESS (0.32s)\nRun 3: SUCCESS (0.35s)\nRun 5: SUCCESS (0.34s)" },
-          executedBy: "admin", executedAt: now()
+          executedBy, executedAt: now(), attachedToRequest: false, reviewedBy: null, reviewedAt: null
         }};
       }));
       flash("✓ 최소 실행 테스트 완료");
     }, 2000);
+  }, [flash]);
+
+  /* ─── Review Loop Test (admin confirms developer-attached test results) ─── */
+  const reviewLoopTest = useCallback((id) => {
+    setWorkloads(wl => wl.map(w => w.id === id ? { ...w, loopTest: { ...w.loopTest, reviewedBy: "admin", reviewedAt: now() } } : w));
+    flash("✓ 테스트 결과 확인 완료 — 승인이 가능합니다.");
   }, [flash]);
 
   /* ─── Admin Approval ─── */
@@ -387,7 +407,7 @@ export default function App() {
             <span style={{ color: "#fff", fontSize: 14, fontWeight: 800, letterSpacing: -0.5 }}>A</span>
           </div>
           <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>AVATAR OnE</span>
-          <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", marginLeft: 2 }}>v1.5</span>
+          <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", marginLeft: 2 }}>v1.6</span>
         </div>
         <div style={{ flex: 1 }} />
         
@@ -449,7 +469,7 @@ export default function App() {
           {page === "library" && <ComponentLibraryPage {...{ library, setLibrary, flash }} />}
           {page === "trainer" && <TrainerPage {...{ specs, addWorkload, flash }} />}
           {page === "test" && <TestRunPage {...{ specs, testRuns, runTest, setPage }} />}
-          {page === "approval" && <ApprovalPage {...{ pending, approveWorkload, rejectWorkload, runLoopTest, testRuns, setModal }} />}
+          {page === "approval" && <ApprovalPage {...{ pending, approveWorkload, rejectWorkload, runLoopTest, reviewLoopTest, testRuns, setModal }} />}
           {page === "queue" && <QueuePage {...{ workloads, setWorkloads, running, queued, flash }} />}
           {page === "resources" && <ResourcesPage workloads={workloads} />}
           {page === "workloads" && <WorkloadsPage workloads={workloads} />}
@@ -531,12 +551,12 @@ function HomePage({ mode, setPage, workloads, models, specs, testRuns, pending, 
 
       {/* v1.5 Workflow guide */}
       <Card style={{ marginBottom: 20, background: "linear-gradient(135deg, #F8FAFC, #F1F5F9)", border: "1px solid #E2E8F0" }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>v1.5 워크플로우</div>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>v1.6 워크플로우</div>
         <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
           {[
             { step: "1", title: "Builder", desc: "App 개발\n(App→Task→Component)", color: "#475569" },
-            { step: "2", title: "Trainer", desc: "학습 요청\n(자원·파라미터 설정)", color: "#7E22CE" },
-            { step: "3", title: "테스트/승인", desc: "최소 실행 테스트\n+ 관리자 승인", color: "#1E40AF" },
+            { step: "2", title: "Trainer", desc: "사전 테스트 실행\n+ 결과 첨부 제출", color: "#7E22CE" },
+            { step: "3", title: "확인/승인", desc: "첨부 결과 확인\n또는 관리자 테스트", color: "#1E40AF" },
             { step: "4", title: "실행 대기열", desc: "우선순위 관리", color: "#B45309" },
             { step: "5", title: "실행 · 완료", desc: "학습 실행\n→ 모델 생성", color: "#047857" },
           ].map((s, i) => (
@@ -1355,10 +1375,26 @@ function TrainerPage({ specs, addWorkload, flash }) {
   const [lastResult, setLastResult] = useState(null);
   const [params, setParams] = useState({ episodes: "1000", learningRate: "0.001", batchSize: "64", discountFactor: "0.99", maxSteps: "500" });
   const [form, setForm] = useState({ gpuType: "A100", gpuCount: "4", mem: "128GB" });
+  const [preTest, setPreTest] = useState({ status: null, results: null }); // null | "running" | "passed" | "failed"
 
   const spec = specs.find(s => s.id === selSpec);
   const gpuStr = form.gpuType + " x " + form.gpuCount;
   const needsApproval = exceedsThreshold(gpuStr, form.mem);
+
+  const runPreTest = () => {
+    setPreTest({ status: "running", results: null });
+    flash("사전 테스트를 실행합니다...");
+    setTimeout(() => {
+      const isRL = true;
+      const results = isRL
+        ? { convergence: true, avgReward: (80 + Math.random() * 15).toFixed(1), finalReward: (88 + Math.random() * 10).toFixed(1), log: "Episode 1: reward=72.1\nEpisode 3: reward=79.4\nEpisode 5: reward=85.3\nEpisode 8: reward=89.7\nEpisode 10: reward=" + (88 + Math.random() * 10).toFixed(1) + "\nConvergence: YES" }
+        : { successRate: "100%", avgDuration: "0.34s", log: "Run 1: SUCCESS (0.32s)\nRun 3: SUCCESS (0.35s)\nRun 5: SUCCESS (0.34s)" };
+      setPreTest({ status: "passed", results, episodes: isRL ? 10 : 5 });
+      flash("✓ 사전 테스트 통과 — 결과를 첨부하여 제출할 수 있습니다.");
+    }, 2500);
+  };
+
+  const resetAll = () => { setDone(false); setSelSpec(null); setLastResult(null); setPreTest({ status: null, results: null }); };
 
   if (done) return (
     <div>
@@ -1374,6 +1410,11 @@ function TrainerPage({ specs, addWorkload, flash }) {
               <p style={{ margin: "0 0 4px", fontSize: 13, color: "#1E40AF", fontWeight: 500 }}>자원 임계치 미만 — 실행 대기열에 진입했습니다.</p>
               <p style={{ margin: 0, fontSize: 12, color: "#94A3B8" }}>워크로드 목록에서 실행 상태를 확인하세요.</p>
             </>
+          ) : lastResult?.attached ? (
+            <>
+              <p style={{ margin: "0 0 4px", fontSize: 13, color: "#7E22CE", fontWeight: 500 }}>테스트 결과가 첨부되었습니다 — 관리자 확인 후 승인됩니다.</p>
+              <p style={{ margin: 0, fontSize: 12, color: "#94A3B8" }}>→ 우측 상단에서 관리자 모드로 전환하여 확인/승인하세요.</p>
+            </>
           ) : (
             <>
               <p style={{ margin: "0 0 4px", fontSize: 13, color: "#64748B" }}>자원 임계치 초과 — 관리자 승인을 대기합니다.</p>
@@ -1381,23 +1422,39 @@ function TrainerPage({ specs, addWorkload, flash }) {
             </>
           )}
           <div style={{ marginTop: 20 }}>
-            <Btn onClick={() => { setDone(false); setSelSpec(null); setLastResult(null); }}>새 학습 요청</Btn>
+            <Btn onClick={resetAll}>새 학습 요청</Btn>
           </div>
         </div>
       </Card>
     </div>
   );
 
+  const submitWorkload = (withAttachment) => {
+    const attachedLoopTest = withAttachment && preTest.status === "passed" ? {
+      status: "passed", episodes: preTest.episodes || 10,
+      results: preTest.results, executedBy: "developer", executedAt: now()
+    } : null;
+    addWorkload({
+      name: spec.name + "-training", specId: spec.id, requester: "나",
+      priority: "high", gpu: gpuStr, mem: form.mem,
+      testRunRef: null, isTrainingRequest: true,
+      trainingConfig: { ...params },
+      ...(attachedLoopTest ? { attachedLoopTest } : {})
+    });
+    setLastResult({ immediate: !needsApproval, attached: !!attachedLoopTest });
+    setDone(true);
+  };
+
   return (
     <div>
-      <Title sub="App을 선택하고 학습 파라미터를 설정하여 학습(Training) 워크로드를 제출합니다.">Trainer — 학습 요청</Title>
+      <Title sub="App을 선택하고 학습 파라미터를 설정한 후, 사전 테스트를 실행하여 결과를 첨부할 수 있습니다.">Trainer — 학습 요청</Title>
 
       {/* Step 1: App 선택 */}
       <Card style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>App 선택</div>
         <div style={{ display: "grid", gap: 8 }}>
           {specs.filter(s => s.status === "ready").map(s => (
-            <div key={s.id} onClick={() => setSelSpec(s.id)} style={{ padding: "14px 16px", borderRadius: 10, border: `2px solid ${selSpec === s.id ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", background: selSpec === s.id ? "#F8FAFC" : "#fff", transition: "all .15s" }}>
+            <div key={s.id} onClick={() => { setSelSpec(s.id); setPreTest({ status: null, results: null }); }} style={{ padding: "14px 16px", borderRadius: 10, border: `2px solid ${selSpec === s.id ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", background: selSpec === s.id ? "#F8FAFC" : "#fff", transition: "all .15s" }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>{s.name} <span style={{ fontWeight: 400, color: "#94A3B8", fontSize: 12 }}>v{s.version}</span></div>
                 <div style={{ fontSize: 12, color: "#64748B", marginTop: 3 }}>Task {getTaskCount(s)}개 · 컴포넌트 {getComponentCount(s)}개 · {getTotalGpuSummary(s)}, {getTotalMem(s)}</div>
@@ -1439,28 +1496,71 @@ function TrainerPage({ specs, addWorkload, flash }) {
           </div>
         </Card>
 
-        <Btn v="primary" sz="lg" onClick={() => {
-          addWorkload({
-            name: spec.name + "-training", specId: spec.id, requester: "나",
-            priority: "high", gpu: gpuStr, mem: form.mem,
-            testRunRef: null, isTrainingRequest: true,
-            trainingConfig: { ...params }
-          });
-          setLastResult({ immediate: !needsApproval });
-          setDone(true);
-        }}>
-          {needsApproval ? "학습 요청 제출 (승인 필요)" : "학습 요청 제출"}
-        </Btn>
+        {/* Step 4: 사전 테스트 (v1.6 신규) */}
+        {needsApproval && (
+          <Card style={{ marginBottom: 14, background: preTest.status === "passed" ? "#F0FDF4" : preTest.status === "running" ? "#EFF6FF" : "#FFFBEB", border: `1px solid ${preTest.status === "passed" ? "#BBF7D0" : preTest.status === "running" ? "#BFDBFE" : "#FDE68A"}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: preTest.status === "passed" ? "#166534" : "#92400E" }}>사전 테스트 (선택)</div>
+              {preTest.status === "passed" && <Badge v="passed">통과</Badge>}
+              {preTest.status === "running" && <Badge v="running">실행 중</Badge>}
+            </div>
+            <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px", lineHeight: 1.6 }}>
+              제출 전 사전 테스트를 실행하면 결과를 첨부하여 제출할 수 있습니다.
+              관리자가 별도 테스트 없이 결과를 확인하고 바로 승인할 수 있어 승인이 빨라집니다.
+            </p>
+
+            {preTest.status === "running" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1E40AF", padding: "10px 0" }}>
+                <span style={{ width: 14, height: 14, borderRadius: 99, border: "2px solid #1D4ED8", borderTopColor: "transparent", animation: "spin .8s linear infinite", display: "inline-block" }} />
+                사전 테스트 진행 중...
+              </div>
+            )}
+
+            {preTest.status === "passed" && preTest.results && (
+              <div style={{ padding: 12, background: "#fff", borderRadius: 8, border: "1px solid #BBF7D0", marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 6 }}>테스트 결과</div>
+                <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.6 }}>
+                  {preTest.results.convergence !== undefined && <>수렴: {preTest.results.convergence ? "YES" : "NO"} · 평균 보상: {preTest.results.avgReward} · 최종 보상: {preTest.results.finalReward}</>}
+                  {preTest.results.successRate && <>성공률: {preTest.results.successRate} · 평균 시간: {preTest.results.avgDuration}</>}
+                </div>
+                {preTest.results.log && (
+                  <pre style={{ background: "#0F172A", borderRadius: 6, padding: 10, fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: "#A5F3FC", margin: "8px 0 0", lineHeight: 1.6, maxHeight: 120, overflow: "auto" }}>{preTest.results.log}</pre>
+                )}
+              </div>
+            )}
+
+            {!preTest.status && (
+              <Btn v="accent" icon="test" onClick={runPreTest}>사전 테스트 실행</Btn>
+            )}
+            {preTest.status === "passed" && (
+              <Btn v="ghost" icon="test" sz="sm" onClick={runPreTest}>재실행</Btn>
+            )}
+          </Card>
+        )}
+
+        {/* Submit buttons */}
+        <div style={{ display: "flex", gap: 10 }}>
+          {needsApproval && preTest.status === "passed" ? (
+            <>
+              <Btn v="primary" sz="lg" onClick={() => submitWorkload(true)}>테스트 결과 첨부하여 제출</Btn>
+              <Btn sz="lg" onClick={() => submitWorkload(false)}>미첨부 제출</Btn>
+            </>
+          ) : (
+            <Btn v="primary" sz="lg" onClick={() => submitWorkload(false)}>
+              {needsApproval ? "학습 요청 제출 (승인 필요)" : "학습 요청 제출"}
+            </Btn>
+          )}
+        </div>
       </>}
     </div>
   );
 }
 
 /* ═══════════════════════ APPROVAL PAGE ═══════════════════════ */
-function ApprovalPage({ pending, approveWorkload, rejectWorkload, runLoopTest, testRuns, setModal }) {
+function ApprovalPage({ pending, approveWorkload, rejectWorkload, runLoopTest, reviewLoopTest, testRuns, setModal }) {
   return (
     <div>
-      <Title sub="자원 임계치를 초과한 워크로드를 검토하고 승인합니다. 최소 실행 테스트를 통과해야 승인할 수 있습니다.">승인 관리</Title>
+      <Title sub="자원 임계치를 초과한 워크로드를 검토하고 승인합니다. 개발자 첨부 결과 확인 또는 관리자 테스트 후 승인할 수 있습니다.">승인 관리</Title>
 
       {pending.length === 0 ? (
         <Card>
@@ -1472,11 +1572,18 @@ function ApprovalPage({ pending, approveWorkload, rejectWorkload, runLoopTest, t
         const lt = w.loopTest;
         const loopPassed = lt && lt.status === "passed";
         const loopRunning = lt && lt.status === "running";
+        const isAttached = lt && lt.attachedToRequest;
+        const isReviewed = lt && lt.reviewedBy;
+        // Approval allowed: (attached + reviewed) or (admin-tested + passed)
+        const canApprove = loopPassed && (isAttached ? !!isReviewed : true);
         return (
           <Card key={w.id} style={{ marginBottom: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>{w.name}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 16, fontWeight: 700 }}>{w.name}</span>
+                  {isAttached && <span style={{ fontSize: 11, fontWeight: 600, color: "#7E22CE", background: "#F3E8FF", padding: "2px 8px", borderRadius: 4 }}>테스트 결과 첨부</span>}
+                </div>
                 <div style={{ fontSize: 12, color: "#64748B", marginTop: 3 }}>
                   신청자: {w.requester} · {w.submitted} · {w.gpu}, {w.mem}
                 </div>
@@ -1490,14 +1597,20 @@ function ApprovalPage({ pending, approveWorkload, rejectWorkload, runLoopTest, t
               <span style={{ fontSize: 12, fontWeight: 600, color: "#92400E" }}>자원 임계치 초과: GPU {parseGpuCount(w.gpu)}기, 메모리 {parseMemNum(w.mem)}GB</span>
             </div>
 
-            {/* Minimum execution test (loop test) */}
-            <div style={{ marginTop: 12, padding: 14, background: loopPassed ? "#F0FDF4" : "#FFF7ED", borderRadius: 10, border: `1px solid ${loopPassed ? "#BBF7D0" : "#FED7AA"}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: loopPassed ? "#166534" : "#92400E" }}>최소 실행 테스트 (루프 테스트)</div>
-                {lt && <Badge v={lt.status === "passed" ? "passed" : lt.status === "running" ? "running" : "waiting"}>{lt.status === "passed" ? "통과" : lt.status === "running" ? "실행 중" : "대기"}</Badge>}
-              </div>
-              {loopPassed ? (
-                <div style={{ fontSize: 12, color: "#166534" }}>
+            {/* Test section — different UI for attached vs non-attached */}
+            {isAttached && loopPassed ? (
+              /* Flow A: Developer attached test results */
+              <div style={{ marginTop: 12, padding: 14, background: isReviewed ? "#F0FDF4" : "#F5F3FF", borderRadius: 10, border: `1px solid ${isReviewed ? "#BBF7D0" : "#DDD6FE"}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: isReviewed ? "#166534" : "#6B21A8" }}>
+                    개발자 사전 테스트 결과 {isReviewed ? "(확인 완료)" : "(확인 필요)"}
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Badge v="passed">통과</Badge>
+                    {isReviewed && <Badge v="completed">확인완료</Badge>}
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, color: "#334155" }}>
                   <div>에피소드: {lt.episodes}회 · 실행자: {lt.executedBy} · {lt.executedAt}</div>
                   {lt.results && (
                     <div style={{ marginTop: 6 }}>
@@ -1505,22 +1618,50 @@ function ApprovalPage({ pending, approveWorkload, rejectWorkload, runLoopTest, t
                       {lt.results.convergence !== undefined && <span>수렴: {lt.results.convergence ? "YES" : "NO"} · 평균 보상: {lt.results.avgReward} · 최종 보상: {lt.results.finalReward}</span>}
                     </div>
                   )}
+                  {isReviewed && <div style={{ marginTop: 6, fontSize: 11, color: "#64748B" }}>확인자: {lt.reviewedBy} · {lt.reviewedAt}</div>}
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
                   {lt.results?.log && (
-                    <Btn sz="sm" v="ghost" style={{ marginTop: 6 }} onClick={() => setModal({ title: "루프 테스트 로그", content: <pre style={{ background: "#0F172A", borderRadius: 8, padding: 14, fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: "#A5F3FC", margin: 0, lineHeight: 1.7 }}>{lt.results.log}</pre> })}>로그 보기</Btn>
+                    <Btn sz="sm" v="ghost" onClick={() => setModal({ title: "개발자 사전 테스트 로그", content: <pre style={{ background: "#0F172A", borderRadius: 8, padding: 14, fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: "#A5F3FC", margin: 0, lineHeight: 1.7 }}>{lt.results.log}</pre> })}>로그 보기</Btn>
+                  )}
+                  {!isReviewed && (
+                    <Btn sz="sm" v="primary" icon="check" onClick={() => reviewLoopTest(w.id)}>확인 완료</Btn>
                   )}
                 </div>
-              ) : loopRunning ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#1E40AF" }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 99, border: "2px solid #1D4ED8", borderTopColor: "transparent", animation: "spin .8s linear infinite", display: "inline-block" }} />
-                  최소 실행 테스트 진행 중...
+              </div>
+            ) : (
+              /* Flow B: No attachment — admin must test */
+              <div style={{ marginTop: 12, padding: 14, background: loopPassed ? "#F0FDF4" : "#FFF7ED", borderRadius: 10, border: `1px solid ${loopPassed ? "#BBF7D0" : "#FED7AA"}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: loopPassed ? "#166534" : "#92400E" }}>최소 실행 테스트 (관리자)</div>
+                  {lt && <Badge v={lt.status === "passed" ? "passed" : lt.status === "running" ? "running" : "waiting"}>{lt.status === "passed" ? "통과" : lt.status === "running" ? "실행 중" : "대기"}</Badge>}
                 </div>
-              ) : (
-                <div>
-                  <p style={{ fontSize: 12, color: "#92400E", margin: "0 0 8px" }}>승인 전 최소 실행 테스트를 수행해야 합니다.</p>
-                  <Btn v="primary" icon="test" onClick={() => runLoopTest(w.id)}>최소 실행 테스트 실행</Btn>
-                </div>
-              )}
-            </div>
+                {loopPassed ? (
+                  <div style={{ fontSize: 12, color: "#166534" }}>
+                    <div>에피소드: {lt.episodes}회 · 실행자: {lt.executedBy} · {lt.executedAt}</div>
+                    {lt.results && (
+                      <div style={{ marginTop: 6 }}>
+                        {lt.results.successRate && <span>성공률: {lt.results.successRate} · 평균 시간: {lt.results.avgDuration}</span>}
+                        {lt.results.convergence !== undefined && <span>수렴: {lt.results.convergence ? "YES" : "NO"} · 평균 보상: {lt.results.avgReward} · 최종 보상: {lt.results.finalReward}</span>}
+                      </div>
+                    )}
+                    {lt.results?.log && (
+                      <Btn sz="sm" v="ghost" style={{ marginTop: 6 }} onClick={() => setModal({ title: "관리자 테스트 로그", content: <pre style={{ background: "#0F172A", borderRadius: 8, padding: 14, fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: "#A5F3FC", margin: 0, lineHeight: 1.7 }}>{lt.results.log}</pre> })}>로그 보기</Btn>
+                    )}
+                  </div>
+                ) : loopRunning ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#1E40AF" }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 99, border: "2px solid #1D4ED8", borderTopColor: "transparent", animation: "spin .8s linear infinite", display: "inline-block" }} />
+                    최소 실행 테스트 진행 중...
+                  </div>
+                ) : (
+                  <div>
+                    <p style={{ fontSize: 12, color: "#92400E", margin: "0 0 8px" }}>개발자가 테스트 결과를 첨부하지 않았습니다. 관리자가 직접 테스트를 실행해야 합니다.</p>
+                    <Btn v="primary" icon="test" onClick={() => runLoopTest(w.id)}>최소 실행 테스트 실행</Btn>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Test run reference */}
             {refRun && (
@@ -1536,7 +1677,11 @@ function ApprovalPage({ pending, approveWorkload, rejectWorkload, runLoopTest, t
             )}
 
             <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
-              <Btn v="success" icon="check" onClick={() => approveWorkload(w.id)} disabled={!loopPassed}>승인{!loopPassed ? " (테스트 필요)" : ""}</Btn>
+              <Btn v="success" icon="check" onClick={() => approveWorkload(w.id)} disabled={!canApprove}>
+                {!canApprove
+                  ? (isAttached && loopPassed && !isReviewed ? "승인 (확인 필요)" : "승인 (테스트 필요)")
+                  : "승인"}
+              </Btn>
               <Btn v="danger" onClick={() => rejectWorkload(w.id)}>반려</Btn>
               <Btn v="ghost" onClick={() => setModal({
                 title: `${w.name} 상세`,
@@ -1548,7 +1693,8 @@ function ApprovalPage({ pending, approveWorkload, rejectWorkload, runLoopTest, t
                     <p><b>GPU:</b> {w.gpu} · <b>메모리:</b> {w.mem}</p>
                     <p><b>신청일시:</b> {w.submitted}</p>
                     <p><b>테스트 run:</b> {w.testRunRef || "없음"}</p>
-                    <p><b>최소 실행 테스트:</b> {lt?.status === "passed" ? "통과" : "미완료"}</p>
+                    <p><b>사전 테스트:</b> {lt?.attachedToRequest ? "개발자 첨부" : "미첨부"} · {lt?.status === "passed" ? "통과" : "미완료"}</p>
+                    <p><b>관리자 확인:</b> {lt?.reviewedBy ? `${lt.reviewedBy} (${lt.reviewedAt})` : "미확인"}</p>
                     <p><b>승인 필요:</b> 자원 임계치 초과</p>
                   </div>
                 )
