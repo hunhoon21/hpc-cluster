@@ -3,6 +3,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 /* ═══════════════════════════════════════════════════════
    AVATAR OnE  v1.7  —  ML/RL Training Platform Demo
 
+   v1.8 Changes:
+   · Editable class design (attributes/methods) in Builder
+   · GUI-based component connection (composition/method_call)
+   · base.py code generation + download
+
    v1.7 Changes:
    · Component library: className, attributes, methods
    · Builder "클래스 설계" tab with base class preview
@@ -465,7 +470,7 @@ export default function App() {
             <span style={{ color: "#fff", fontSize: 14, fontWeight: 800, letterSpacing: -0.5 }}>A</span>
           </div>
           <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>AVATAR OnE</span>
-          <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", marginLeft: 2 }}>v1.6</span>
+          <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", marginLeft: 2 }}>v1.8</span>
         </div>
         <div style={{ flex: 1 }} />
         
@@ -789,7 +794,8 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
   const [form, setForm] = useState({
     name: "", version: "1.0.0",
     envVars: [{ key: "", value: "" }],
-    tasks: [{ id: tid(), name: "default-task", imported_from: null, components: [], workflow: [] }]
+    tasks: [{ id: tid(), name: "default-task", imported_from: null, components: [], workflow: [] }],
+    classSpec: { relationships: { composition: [], method_calls: [] } }
   });
   const [generated, setGenerated] = useState(null);
   const [edgeFrom, setEdgeFrom] = useState("");
@@ -799,6 +805,12 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
   const [connectMode, setConnectMode] = useState(false);
   const [connectSource, setConnectSource] = useState(null);
   const [expandedComp, setExpandedComp] = useState(null);
+  const [classConnectSource, setClassConnectSource] = useState(null);
+  const [classConnectPopup, setClassConnectPopup] = useState(null); // { sourceId, targetId }
+  const [classConnectType, setClassConnectType] = useState("composition");
+  const [classConnectMethodCaller, setClassConnectMethodCaller] = useState("");
+  const [classConnectMethodCallee, setClassConnectMethodCallee] = useState("");
+  const [basePyModal, setBasePyModal] = useState(null); // null or { code: string }
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const parseJSON = (s) => { try { return JSON.parse(s); } catch { return s || {}; } };
@@ -829,7 +841,10 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
     const [img, tag] = libComp.image.split(":");
     setTask(selTaskIdx, "components", [...t.components, {
       id: cid(), name: libComp.name, image: img, tag: tag || "latest",
-      gpuType: "A100", gpuCount: "2", mem: "64GB", params: "", order: maxOrder + 1, libraryRef: libComp.id
+      gpuType: "A100", gpuCount: "2", mem: "64GB", params: "", order: maxOrder + 1, libraryRef: libComp.id,
+      className: libComp.className || "",
+      attributes: libComp.attributes ? libComp.attributes.map(a => ({ ...a })) : [],
+      methods: libComp.methods ? libComp.methods.map(m => ({ ...m })) : []
     }]);
     flash(`✓ ${libComp.name} 컴포넌트를 라이브러리에서 추가했습니다.`);
   };
@@ -877,14 +892,21 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
       envVars: [{ key: "", value: "" }],
       tasks: (spec.tasks || []).map(t => ({
         id: t.id, name: t.name, imported_from: t.imported_from || null,
-        components: (t.components || []).map(c => ({
-          id: c.id, name: c.name, image: c.image?.split(":")[0] || c.image || "", tag: c.tag || "",
-          gpuType: c.gpu_type || c.gpuType || "A100", gpuCount: String(c.gpu_count || c.gpuCount || 2),
-          mem: c.mem || "64GB", params: c.params ? (typeof c.params === "string" ? c.params : JSON.stringify(c.params)) : "",
-          order: c.order || 1, libraryRef: c.libraryRef || null
-        })),
+        components: (t.components || []).map(c => {
+          const lib = library.find(l => l.id === c.libraryRef || l.name === c.name);
+          return {
+            id: c.id, name: c.name, image: c.image?.split(":")[0] || c.image || "", tag: c.tag || "",
+            gpuType: c.gpu_type || c.gpuType || "A100", gpuCount: String(c.gpu_count || c.gpuCount || 2),
+            mem: c.mem || "64GB", params: c.params ? (typeof c.params === "string" ? c.params : JSON.stringify(c.params)) : "",
+            order: c.order || 1, libraryRef: c.libraryRef || null,
+            className: c.className || lib?.className || "",
+            attributes: c.attributes ? c.attributes.map(a => ({ ...a })) : (lib?.attributes ? lib.attributes.map(a => ({ ...a })) : []),
+            methods: c.methods ? c.methods.map(m => ({ ...m })) : (lib?.methods ? lib.methods.map(m => ({ ...m })) : [])
+          };
+        }),
         workflow: t.workflow || []
-      }))
+      })),
+      classSpec: spec.classSpec ? JSON.parse(JSON.stringify(spec.classSpec)) : { relationships: { composition: [], method_calls: [] } }
     });
     setEditingSpecId(spec.id);
     setSelTaskIdx(0);
@@ -897,7 +919,8 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
     setForm({
       name: "", version: "1.0.0",
       envVars: [{ key: "", value: "" }],
-      tasks: [{ id: tid(), name: "default-task", imported_from: null, components: [], workflow: [] }]
+      tasks: [{ id: tid(), name: "default-task", imported_from: null, components: [], workflow: [] }],
+      classSpec: { relationships: { composition: [], method_calls: [] } }
     });
     setEditingSpecId(null);
     setSelTaskIdx(0);
@@ -913,13 +936,15 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
       components: t.components.map(c => ({
         id: c.id, name: c.name || `component_${c.order}`,
         image: (c.image || "registry.avatar.io/default") + ":" + (c.tag || "latest"), tag: c.tag || "latest",
-        gpu_type: c.gpuType, gpu_count: parseInt(c.gpuCount) || 2, mem: c.mem || "64GB", params: parseJSON(c.params), order: c.order
+        gpu_type: c.gpuType, gpu_count: parseInt(c.gpuCount) || 2, mem: c.mem || "64GB", params: parseJSON(c.params), order: c.order,
+        libraryRef: c.libraryRef || null,
+        className: c.className || "", attributes: c.attributes || [], methods: c.methods || []
       })),
       workflow: t.workflow
     }));
 
     if (editingSpecId) {
-      updateSpec(editingSpecId, { name: specName, version: form.version || "1.0.0", tasks: builtTasks });
+      updateSpec(editingSpecId, { name: specName, version: form.version || "1.0.0", tasks: builtTasks, classSpec: form.classSpec });
       flash("✓ App이 업데이트되었습니다.");
     } else {
       const specObj = {
@@ -947,7 +972,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
       addSpec({
         id: "APP-" + Math.random().toString(36).substr(2, 4).toUpperCase(),
         name: specName, version: form.version || "1.0.0", status: "ready", created: now().split(" ")[0],
-        tasks: builtTasks, imported_apps: []
+        tasks: builtTasks, imported_apps: [], classSpec: form.classSpec
       });
       flash("✓ App 스펙 파일이 생성되었습니다.");
     }
@@ -1279,81 +1304,375 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
             </>
           )}
 
-          {/* TAB 3: 클래스 설계 */}
+          {/* TAB 3: 클래스 설계 (Editable) */}
           {activeTab === "class" && (() => {
-            const spec = editingSpecId ? specs.find(s => s.id === editingSpecId) : null;
-            const cs = spec?.classSpec;
-            const allComps = form.tasks.flatMap(t => t.components);
-            const compClasses = allComps.map(c => {
-              const lib = library.find(l => l.id === c.libraryRef || l.name === c.name);
-              return lib?.className ? { id: c.id, name: c.name, className: lib.className, attributes: lib.attributes || [], methods: lib.methods || [] } : null;
-            }).filter(Boolean);
+            const allComps = form.tasks.flatMap((t, ti) => t.components.map((c, ci) => ({ ...c, _taskIdx: ti, _compIdx: ci })));
+            const compClasses = allComps.filter(c => c.className);
+            const cs = form.classSpec || { relationships: { composition: [], method_calls: [] } };
+
+            const setCompField = (taskIdx, compIdx, key, val) => setComp(taskIdx, compIdx, key, val);
+            const addAttribute = (taskIdx, compIdx) => {
+              const c = form.tasks[taskIdx].components[compIdx];
+              setCompField(taskIdx, compIdx, "attributes", [...(c.attributes || []), { name: "", type: "Any" }]);
+            };
+            const removeAttribute = (taskIdx, compIdx, attrIdx) => {
+              const c = form.tasks[taskIdx].components[compIdx];
+              setCompField(taskIdx, compIdx, "attributes", (c.attributes || []).filter((_, i) => i !== attrIdx));
+            };
+            const setAttr = (taskIdx, compIdx, attrIdx, key, val) => {
+              const c = form.tasks[taskIdx].components[compIdx];
+              setCompField(taskIdx, compIdx, "attributes", (c.attributes || []).map((a, i) => i === attrIdx ? { ...a, [key]: val } : a));
+            };
+            const addMethod = (taskIdx, compIdx) => {
+              const c = form.tasks[taskIdx].components[compIdx];
+              setCompField(taskIdx, compIdx, "methods", [...(c.methods || []), { name: "", params: "", returnType: "None", isAbstract: true }]);
+            };
+            const removeMethod = (taskIdx, compIdx, mIdx) => {
+              const c = form.tasks[taskIdx].components[compIdx];
+              setCompField(taskIdx, compIdx, "methods", (c.methods || []).filter((_, i) => i !== mIdx));
+            };
+            const setMethod = (taskIdx, compIdx, mIdx, key, val) => {
+              const c = form.tasks[taskIdx].components[compIdx];
+              setCompField(taskIdx, compIdx, "methods", (c.methods || []).map((m, i) => i === mIdx ? { ...m, [key]: val } : m));
+            };
+
+            const handleClassNodeClick = (comp) => {
+              if (!classConnectSource) return;
+              if (classConnectSource === comp.id) { setClassConnectSource(null); return; }
+              setClassConnectPopup({ sourceId: classConnectSource, targetId: comp.id });
+              setClassConnectType("composition");
+              setClassConnectMethodCaller("");
+              setClassConnectMethodCallee("");
+            };
+
+            const confirmClassConnection = () => {
+              const src = allComps.find(c => c.id === classConnectPopup.sourceId);
+              const tgt = allComps.find(c => c.id === classConnectPopup.targetId);
+              if (!src || !tgt) return;
+              const newCs = { ...cs, relationships: { composition: [...(cs.relationships?.composition || [])], method_calls: [...(cs.relationships?.method_calls || [])] } };
+              if (classConnectType === "composition") {
+                const attrName = (tgt.className || tgt.name).replace(/Base$/, "").replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "") + "_component";
+                newCs.relationships.composition.push({ owner: src.id, attribute: attrName, target: tgt.id });
+                // Auto-add attribute to source component
+                const srcAttrs = [...(src.attributes || [])];
+                if (!srcAttrs.some(a => a.name === attrName)) {
+                  srcAttrs.push({ name: attrName, type: tgt.className || tgt.name });
+                  setCompField(src._taskIdx, src._compIdx, "attributes", srcAttrs);
+                }
+              } else {
+                if (!classConnectMethodCaller || !classConnectMethodCallee) { flash("호출자 메서드와 피호출자 메서드를 입력하세요."); return; }
+                newCs.relationships.method_calls.push({ caller: src.id, callerMethod: classConnectMethodCaller, callee: tgt.id, calleeMethod: classConnectMethodCallee });
+              }
+              set("classSpec", newCs);
+              setClassConnectPopup(null);
+              setClassConnectSource(null);
+              flash("✓ 클래스 연결이 추가되었습니다.");
+            };
+
+            const removeComposition = (idx) => {
+              const newCs = { ...cs, relationships: { composition: cs.relationships.composition.filter((_, i) => i !== idx), method_calls: [...cs.relationships.method_calls] } };
+              set("classSpec", newCs);
+            };
+            const removeMethodCall = (idx) => {
+              const newCs = { ...cs, relationships: { composition: [...cs.relationships.composition], method_calls: cs.relationships.method_calls.filter((_, i) => i !== idx) } };
+              set("classSpec", newCs);
+            };
+
+            /* ── generateBasePy ── */
+            const generateBasePy = () => {
+              const classComps = allComps.filter(c => c.className);
+              if (classComps.length === 0) { flash("클래스가 정의된 컴포넌트가 없습니다."); return; }
+
+              // Build dependency graph for topological sort
+              const depGraph = {};
+              classComps.forEach(c => { depGraph[c.id] = new Set(); });
+              (cs.relationships?.composition || []).forEach(r => {
+                if (depGraph[r.owner] && depGraph[r.target]) depGraph[r.owner].add(r.target);
+              });
+              (cs.relationships?.method_calls || []).forEach(r => {
+                if (depGraph[r.caller] && depGraph[r.callee]) depGraph[r.caller].add(r.callee);
+              });
+
+              // Topological sort (dependencies first)
+              const sorted = [];
+              const visited = new Set();
+              const visiting = new Set();
+              const visit = (id) => {
+                if (visited.has(id)) return;
+                if (visiting.has(id)) return; // cycle
+                visiting.add(id);
+                (depGraph[id] || new Set()).forEach(dep => visit(dep));
+                visiting.delete(id);
+                visited.add(id);
+                sorted.push(id);
+              };
+              classComps.forEach(c => visit(c.id));
+
+              const sortedComps = sorted.map(id => classComps.find(c => c.id === id)).filter(Boolean);
+
+              // Build method_calls lookup: caller -> [{callerMethod, callee, calleeMethod}]
+              const methodCallsByOwner = {};
+              (cs.relationships?.method_calls || []).forEach(r => {
+                if (!methodCallsByOwner[r.caller]) methodCallsByOwner[r.caller] = [];
+                methodCallsByOwner[r.caller].push(r);
+              });
+
+              let code = "from abc import ABC, abstractmethod\nfrom typing import Any, Optional\n\n\nclass ComponentBase(ABC):\n    \"\"\"Common base type for all workflow components.\"\"\"\n    pass\n";
+
+              sortedComps.forEach(comp => {
+                const cls = comp.className;
+                const attrs = comp.attributes || [];
+                const methods = comp.methods || [];
+                const desc = comp.name || cls;
+
+                code += `\n\nclass ${cls}(ComponentBase):\n    \"\"\"${desc}\"\"\"\n\n`;
+
+                // __init__
+                const initParams = attrs.map(a => `${a.name}: ${a.type} = None`).join(", ");
+                code += `    def __init__(self${initParams ? ", " + initParams : ""}) -> None:\n`;
+                if (attrs.length === 0) {
+                  code += `        pass\n`;
+                } else {
+                  attrs.forEach(a => { code += `        self.${a.name}: ${a.type} = ${a.name}\n`; });
+                }
+
+                // Methods
+                const ownerCalls = methodCallsByOwner[comp.id] || [];
+                methods.forEach(m => {
+                  const delegateCall = ownerCalls.find(mc => mc.callerMethod === m.name);
+                  if (delegateCall) {
+                    // This is a delegate method
+                    const calleeComp = allComps.find(c => c.id === delegateCall.callee);
+                    const calleeClassName = calleeComp?.className || delegateCall.callee;
+                    // Find the attribute that holds the callee
+                    const compRelation = (cs.relationships?.composition || []).find(r => r.owner === comp.id && r.target === delegateCall.callee);
+                    const attrName = compRelation?.attribute || delegateCall.callee;
+                    code += `\n    def ${m.name}(self, *args, **kwargs):\n`;
+                    code += `        \"\"\"Delegate: ${cls} -> ${calleeClassName}\"\"\"\n`;
+                    code += `        if self.${attrName} is None:\n`;
+                    code += `            raise ValueError('${attrName} is not set.')\n`;
+                    code += `        self.${attrName}.${delegateCall.calleeMethod}(*args, **kwargs)\n`;
+                  } else if (m.isAbstract) {
+                    code += `\n    @abstractmethod\n`;
+                    code += `    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n`;
+                    code += `        pass\n`;
+                  } else {
+                    code += `\n    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n`;
+                    code += `        pass\n`;
+                  }
+                });
+              });
+
+              setBasePyModal({ code });
+            };
+
+            const downloadBasePy = () => {
+              if (!basePyModal?.code) return;
+              const blob = new Blob([basePyModal.code], { type: "text/x-python" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = "base.py"; a.click();
+              URL.revokeObjectURL(url);
+              flash("✓ base.py 다운로드 완료");
+            };
+
+            const copyBasePy = () => {
+              if (!basePyModal?.code) return;
+              navigator.clipboard.writeText(basePyModal.code).then(() => flash("✓ 클립보드에 복사되었습니다.")).catch(() => flash("복사에 실패했습니다."));
+            };
+
             return (
               <>
-                {compClasses.length === 0 ? (
-                  <Card><p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>이 App에는 클래스 설계 정보가 있는 컴포넌트가 없습니다.</p></Card>
-                ) : (
-                  <>
-                    <Card style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>컴포넌트 클래스 ({compClasses.length})</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-                        {compClasses.map(cc => (
-                          <div key={cc.id} style={{ padding: 14, borderRadius: 10, border: "1px solid #E2E8F0", background: "#FAFBFC" }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 2 }}>{cc.className}</div>
-                            <div style={{ fontSize: 11, color: "#64748B", marginBottom: 10 }}>{cc.name}</div>
-                            <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 4 }}>Attributes ({cc.attributes.length})</div>
-                            {cc.attributes.map((a, i) => (
-                              <div key={i} style={{ fontSize: 11, color: "#334155", fontFamily: "'JetBrains Mono',monospace", padding: "2px 0" }}>
-                                {a.name}: <span style={{ color: "#6366F1" }}>{a.type}</span>
+                {/* Class Cards */}
+                <Card style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>컴포넌트 클래스 설계</div>
+                  <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 14px" }}>각 컴포넌트의 className, attributes, methods를 편집합니다.</p>
+
+                  {allComps.length === 0 ? (
+                    <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>컴포넌트를 먼저 추가하세요.</p>
+                  ) : (
+                    <>
+                      {/* Class connect mode indicator */}
+                      {classConnectSource && (
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#6366F1", marginBottom: 10, padding: "8px 12px", background: "#EEF2FF", borderRadius: 8, border: "1px solid #C7D2FE", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <span>◆ 소스: <strong>{allComps.find(c => c.id === classConnectSource)?.className || allComps.find(c => c.id === classConnectSource)?.name || "?"}</strong> — 타겟 클래스를 클릭하세요</span>
+                          <button onClick={() => setClassConnectSource(null)} style={{ padding: "2px 10px", borderRadius: 4, border: "1px solid #C7D2FE", background: "#E0E7FF", cursor: "pointer", fontSize: 11, color: "#6366F1", fontFamily: "inherit", fontWeight: 600 }}>취소</button>
+                        </div>
+                      )}
+
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
+                        {allComps.map(c => {
+                          const isSource = classConnectSource === c.id;
+                          const isTarget = classConnectSource && classConnectSource !== c.id;
+                          return (
+                            <div key={c.id} onClick={() => { if (isTarget) handleClassNodeClick(c); }} style={{
+                              padding: 16, borderRadius: 12,
+                              border: `2px solid ${isSource ? "#6366F1" : isTarget ? "#A5B4FC" : "#E2E8F0"}`,
+                              background: isSource ? "#EEF2FF" : isTarget ? "#F5F3FF" : "#FAFBFC",
+                              cursor: isTarget ? "pointer" : "default",
+                              transition: "all .15s",
+                              boxShadow: isSource ? "0 0 0 3px rgba(99,102,241,.15)" : "none"
+                            }}>
+                              {/* className input */}
+                              <div style={{ marginBottom: 10 }}>
+                                <label style={{ fontSize: 10, fontWeight: 600, color: "#6366F1", letterSpacing: 0.5, textTransform: "uppercase" }}>Class Name</label>
+                                <input value={c.className || ""} onChange={e => setCompField(c._taskIdx, c._compIdx, "className", e.target.value)} placeholder="ClassName" onClick={e => e.stopPropagation()} style={{ display: "block", width: "100%", padding: "6px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 14, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", color: "#0F172A", outline: "none", boxSizing: "border-box", marginTop: 3, background: "#fff" }} />
+                                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{c.name} #{c.order}</div>
                               </div>
-                            ))}
-                            <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", marginTop: 8, marginBottom: 4 }}>Methods ({cc.methods.length})</div>
-                            {cc.methods.map((m, i) => (
-                              <div key={i} style={{ fontSize: 11, color: "#334155", fontFamily: "'JetBrains Mono',monospace", padding: "2px 0", display: "flex", alignItems: "center", gap: 4 }}>
-                                {m.isAbstract && <span style={{ fontSize: 9, background: "#FEF3C7", color: "#92400E", padding: "1px 4px", borderRadius: 3, fontFamily: "inherit" }}>abstract</span>}
-                                {m.name}({m.params}) → {m.returnType}
+
+                              {/* Attributes */}
+                              <div style={{ marginBottom: 10 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>Attributes ({(c.attributes || []).length})</span>
+                                  <button onClick={(e) => { e.stopPropagation(); addAttribute(c._taskIdx, c._compIdx); }} style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>+ 추가</button>
+                                </div>
+                                {(c.attributes || []).map((a, ai) => (
+                                  <div key={ai} style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 3 }}>
+                                    <input value={a.name} onChange={e => { e.stopPropagation(); setAttr(c._taskIdx, c._compIdx, ai, "name", e.target.value); }} onClick={e => e.stopPropagation()} placeholder="name" style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                                    <input value={a.type} onChange={e => { e.stopPropagation(); setAttr(c._taskIdx, c._compIdx, ai, "type", e.target.value); }} onClick={e => e.stopPropagation()} placeholder="type" style={{ width: 90, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", color: "#6366F1", boxSizing: "border-box" }} />
+                                    <button onClick={(e) => { e.stopPropagation(); removeAttribute(c._taskIdx, c._compIdx, ai); }} style={{ padding: "2px 4px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 12 }}>×</button>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
+
+                              {/* Methods */}
+                              <div style={{ marginBottom: 10 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>Methods ({(c.methods || []).length})</span>
+                                  <button onClick={(e) => { e.stopPropagation(); addMethod(c._taskIdx, c._compIdx); }} style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>+ 추가</button>
+                                </div>
+                                {(c.methods || []).map((m, mi) => (
+                                  <div key={mi} style={{ padding: 6, background: "#fff", borderRadius: 6, border: "1px solid #E2E8F0", marginBottom: 4 }}>
+                                    <div style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 3 }}>
+                                      <input value={m.name} onChange={e => { e.stopPropagation(); setMethod(c._taskIdx, c._compIdx, mi, "name", e.target.value); }} onClick={e => e.stopPropagation()} placeholder="method_name" style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                                      <button onClick={(e) => { e.stopPropagation(); removeMethod(c._taskIdx, c._compIdx, mi); }} style={{ padding: "2px 4px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 12 }}>×</button>
+                                    </div>
+                                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                      <input value={m.params} onChange={e => { e.stopPropagation(); setMethod(c._taskIdx, c._compIdx, mi, "params", e.target.value); }} onClick={e => e.stopPropagation()} placeholder="params" style={{ flex: 1, padding: "3px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 10, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                                      <span style={{ fontSize: 10, color: "#94A3B8" }}>→</span>
+                                      <input value={m.returnType} onChange={e => { e.stopPropagation(); setMethod(c._taskIdx, c._compIdx, mi, "returnType", e.target.value); }} onClick={e => e.stopPropagation()} placeholder="return" style={{ width: 60, padding: "3px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 10, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                                      <label onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: m.isAbstract ? "#92400E" : "#94A3B8", cursor: "pointer", whiteSpace: "nowrap" }}>
+                                        <input type="checkbox" checked={!!m.isAbstract} onChange={e => { setMethod(c._taskIdx, c._compIdx, mi, "isAbstract", e.target.checked); }} style={{ width: 12, height: 12 }} />
+                                        abstract
+                                      </label>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Connect button */}
+                              <div style={{ borderTop: "1px solid #E2E8F0", paddingTop: 8 }}>
+                                <button onClick={(e) => { e.stopPropagation(); setClassConnectSource(isSource ? null : c.id); }} style={{
+                                  width: "100%", padding: "6px 0", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: "inherit", fontWeight: 600,
+                                  border: `1px solid ${isSource ? "#6366F1" : "#E2E8F0"}`,
+                                  background: isSource ? "#6366F1" : "#fff",
+                                  color: isSource ? "#fff" : "#6366F1"
+                                }}>◆ 연결</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </Card>
+
+                {/* Connection popup */}
+                {classConnectPopup && (
+                  <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.3)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90 }} onClick={() => { setClassConnectPopup(null); setClassConnectSource(null); }}>
+                    <div style={{ background: "#fff", borderRadius: 14, padding: 24, width: 400, boxShadow: "0 24px 60px rgba(0,0,0,.12)" }} onClick={e => e.stopPropagation()}>
+                      <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700 }}>클래스 연결 유형 선택</h3>
+                      <div style={{ fontSize: 12, color: "#64748B", marginBottom: 14 }}>
+                        {allComps.find(c => c.id === classConnectPopup.sourceId)?.className || "?"} → {allComps.find(c => c.id === classConnectPopup.targetId)?.className || "?"}
+                      </div>
+                      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+                        {[["composition", "Composition (소유)"], ["method_call", "Method Call (위임)"]].map(([val, label]) => (
+                          <button key={val} onClick={() => setClassConnectType(val)} style={{
+                            flex: 1, padding: "10px 0", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit",
+                            border: `2px solid ${classConnectType === val ? "#6366F1" : "#E2E8F0"}`,
+                            background: classConnectType === val ? "#EEF2FF" : "#fff",
+                            color: classConnectType === val ? "#6366F1" : "#64748B"
+                          }}>{label}</button>
                         ))}
                       </div>
-                    </Card>
-                    {cs && (
-                      <Card style={{ marginBottom: 14 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>컴포넌트 관계</div>
-                        {cs.relationships?.composition?.length > 0 && (
-                          <>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6 }}>Composition (소유)</div>
-                            {cs.relationships.composition.map((r, i) => {
-                              const ownerComp = allComps.find(c => c.id === r.owner);
-                              const ownerLib = ownerComp ? library.find(l => l.id === ownerComp.libraryRef || l.name === ownerComp.name) : null;
-                              return (
-                                <div key={i} style={{ fontSize: 12, padding: "5px 10px", background: "#F0FDF4", borderRadius: 6, border: "1px solid #BBF7D0", marginBottom: 4, fontFamily: "'JetBrains Mono',monospace" }}>
-                                  {ownerLib?.className || r.owner} ──◆ {r.attribute}: {r.target}
-                                </div>
-                              );
-                            })}
-                          </>
-                        )}
-                        {cs.relationships?.method_calls?.length > 0 && (
-                          <>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginTop: 10, marginBottom: 6 }}>Method Calls (위임 호출)</div>
-                            {cs.relationships.method_calls.map((r, i) => {
-                              const callerComp = allComps.find(c => c.id === r.caller);
-                              const callerLib = callerComp ? library.find(l => l.id === callerComp.libraryRef || l.name === callerComp.name) : null;
-                              const calleeComp = allComps.find(c => c.id === r.callee);
-                              const calleeLib = calleeComp ? library.find(l => l.id === calleeComp.libraryRef || l.name === calleeComp.name) : null;
-                              return (
-                                <div key={i} style={{ fontSize: 12, padding: "5px 10px", background: "#EFF6FF", borderRadius: 6, border: "1px solid #BFDBFE", marginBottom: 4, fontFamily: "'JetBrains Mono',monospace" }}>
-                                  {callerLib?.className || r.caller}.{r.callerMethod}() → {calleeLib?.className || r.callee}.{r.calleeMethod}()
-                                </div>
-                              );
-                            })}
-                          </>
-                        )}
-                      </Card>
+                      {classConnectType === "method_call" && (
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ marginBottom: 8 }}>
+                            <label style={{ fontSize: 11, fontWeight: 500, color: "#64748B" }}>호출자 메서드 (caller)</label>
+                            <input value={classConnectMethodCaller} onChange={e => setClassConnectMethodCaller(e.target.value)} placeholder="caller_method_name" style={{ display: "block", width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", marginTop: 4, boxSizing: "border-box" }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 500, color: "#64748B" }}>피호출자 메서드 (callee)</label>
+                            <input value={classConnectMethodCallee} onChange={e => setClassConnectMethodCallee(e.target.value)} placeholder="callee_method_name" style={{ display: "block", width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", marginTop: 4, boxSizing: "border-box" }} />
+                          </div>
+                        </div>
+                      )}
+                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                        <Btn onClick={() => { setClassConnectPopup(null); setClassConnectSource(null); }}>취소</Btn>
+                        <Btn v="primary" onClick={confirmClassConnection}>연결 추가</Btn>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Relationships list */}
+                {(cs.relationships?.composition?.length > 0 || cs.relationships?.method_calls?.length > 0) && (
+                  <Card style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>컴포넌트 관계</div>
+                    {cs.relationships?.composition?.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6 }}>Composition (소유)</div>
+                        {cs.relationships.composition.map((r, i) => {
+                          const ownerComp = allComps.find(c => c.id === r.owner);
+                          const targetComp = allComps.find(c => c.id === r.target);
+                          return (
+                            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, padding: "5px 10px", background: "#F0FDF4", borderRadius: 6, border: "1px solid #BBF7D0", marginBottom: 4, fontFamily: "'JetBrains Mono',monospace" }}>
+                              <span>{ownerComp?.className || r.owner} ──◆ {r.attribute}: {targetComp?.className || r.target}</span>
+                              <button onClick={() => removeComposition(i)} style={{ padding: "2px 6px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 14 }}>×</button>
+                            </div>
+                          );
+                        })}
+                      </>
                     )}
-                  </>
+                    {cs.relationships?.method_calls?.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginTop: 10, marginBottom: 6 }}>Method Calls (위임 호출)</div>
+                        {cs.relationships.method_calls.map((r, i) => {
+                          const callerComp = allComps.find(c => c.id === r.caller);
+                          const calleeComp = allComps.find(c => c.id === r.callee);
+                          return (
+                            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, padding: "5px 10px", background: "#EFF6FF", borderRadius: 6, border: "1px solid #BFDBFE", marginBottom: 4, fontFamily: "'JetBrains Mono',monospace" }}>
+                              <span>{callerComp?.className || r.caller}.{r.callerMethod}() → {calleeComp?.className || r.callee}.{r.calleeMethod}()</span>
+                              <button onClick={() => removeMethodCall(i)} style={{ padding: "2px 6px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 14 }}>×</button>
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
+                  </Card>
+                )}
+
+                {/* Generate base.py button */}
+                <div style={{ display: "flex", gap: 10 }}>
+                  <Btn v="primary" sz="lg" onClick={generateBasePy}>Base Class 생성</Btn>
+                  <Btn v="default" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
+                </div>
+
+                {/* base.py Modal */}
+                {basePyModal && (
+                  <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.3)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90 }} onClick={() => setBasePyModal(null)}>
+                    <div style={{ background: "#fff", borderRadius: 14, padding: 24, maxWidth: 720, width: "90%", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 60px rgba(0,0,0,.12)" }} onClick={e => e.stopPropagation()}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                        <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>base.py — Base Class 코드</h3>
+                        <button onClick={() => setBasePyModal(null)} style={{ background: "#F1F5F9", border: "none", cursor: "pointer", padding: 6, borderRadius: 6, display: "flex" }}><I n="close" s={16} c="#64748B" /></button>
+                      </div>
+                      <pre style={{ flex: 1, background: "#0F172A", borderRadius: 10, padding: 18, fontSize: 12, fontFamily: "'JetBrains Mono',monospace", overflow: "auto", lineHeight: 1.7, color: "#E2E8F0", margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{basePyModal.code}</pre>
+                      <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+                        <Btn v="default" icon="dl" onClick={downloadBasePy}>다운로드</Btn>
+                        <Btn v="primary" onClick={copyBasePy}>클립보드 복사</Btn>
+                      </div>
+                    </div>
+                  </div>
                 )}
               </>
             );
