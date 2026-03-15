@@ -832,7 +832,8 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
     const t = form.tasks[selTaskIdx];
     const maxOrder = t.components.reduce((m, c) => Math.max(m, c.order), 0);
     setTask(selTaskIdx, "components", [...t.components, {
-      id: cid(), name: "", image: "", tag: "", gpuType: "A100", gpuCount: "2", mem: "64GB", params: "", order: maxOrder + 1
+      id: cid(), name: "", image: "", tag: "", gpuType: "A100", gpuCount: "2", mem: "64GB", params: "", order: maxOrder + 1,
+      className: "", attributes: [], methods: [], implCode: ""
     }]);
   };
   const addFromLibrary = (libComp) => {
@@ -844,7 +845,8 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
       gpuType: "A100", gpuCount: "2", mem: "64GB", params: "", order: maxOrder + 1, libraryRef: libComp.id,
       className: libComp.className || "",
       attributes: libComp.attributes ? libComp.attributes.map(a => ({ ...a })) : [],
-      methods: libComp.methods ? libComp.methods.map(m => ({ ...m })) : []
+      methods: libComp.methods ? libComp.methods.map(m => ({ ...m })) : [],
+      implCode: ""
     }]);
     flash(`✓ ${libComp.name} 컴포넌트를 라이브러리에서 추가했습니다.`);
   };
@@ -901,7 +903,8 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
             order: c.order || 1, libraryRef: c.libraryRef || null,
             className: c.className || lib?.className || "",
             attributes: c.attributes ? c.attributes.map(a => ({ ...a })) : (lib?.attributes ? lib.attributes.map(a => ({ ...a })) : []),
-            methods: c.methods ? c.methods.map(m => ({ ...m })) : (lib?.methods ? lib.methods.map(m => ({ ...m })) : [])
+            methods: c.methods ? c.methods.map(m => ({ ...m })) : (lib?.methods ? lib.methods.map(m => ({ ...m })) : []),
+            implCode: c.implCode || ""
           };
         }),
         workflow: t.workflow || []
@@ -1653,8 +1656,88 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                 )}
 
                 {/* Generate base.py button */}
-                <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
                   <Btn v="primary" sz="lg" onClick={generateBasePy}>Base Class 생성</Btn>
+                </div>
+
+                {/* Implementation Code Editors */}
+                {allComps.some(c => c.className) && (
+                  <Card style={{ marginBottom: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700 }}>구현체 코드 작성</div>
+                      <button onClick={() => {
+                        allComps.filter(c => c.className && c.methods?.some(m => m.isAbstract)).forEach(c => {
+                          if (c.implCode) return;
+                          const cls = c.className;
+                          const implCls = cls.replace(/Base$/, "") || cls + "Impl";
+                          let tmpl = `from base import ${cls}\n\n\nclass ${implCls}(${cls}):\n    \"\"\"${c.name} 구현체\"\"\"\n`;
+                          (c.methods || []).filter(m => m.isAbstract).forEach(m => {
+                            tmpl += `\n    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n        # TODO: 구현 필요\n        raise NotImplementedError\n`;
+                          });
+                          setCompField(c._taskIdx, c._compIdx, "implCode", tmpl);
+                        });
+                        flash("✓ 구현체 템플릿이 생성되었습니다.");
+                      }} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>
+                        구현체 템플릿 생성
+                      </button>
+                    </div>
+                    <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 14px" }}>base class의 abstract 메서드를 구현합니다. 각 컴포넌트별 구현 코드를 작성하세요.</p>
+                    {allComps.filter(c => c.className).map(c => (
+                      <div key={c.id} style={{ marginBottom: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "#0F172A" }}>{c.className.replace(/Base$/, "") || c.className}.py</span>
+                          <span style={{ fontSize: 10, color: "#94A3B8" }}>← {c.className} 구현</span>
+                          {c.methods?.some(m => m.isAbstract) && !c.implCode && (
+                            <span style={{ fontSize: 9, background: "#FEF3C7", color: "#92400E", padding: "2px 6px", borderRadius: 4 }}>구현 필요</span>
+                          )}
+                          {c.implCode && (
+                            <span style={{ fontSize: 9, background: "#DCFCE7", color: "#166534", padding: "2px 6px", borderRadius: 4 }}>작성됨</span>
+                          )}
+                        </div>
+                        <textarea
+                          value={c.implCode || ""}
+                          onChange={e => setCompField(c._taskIdx, c._compIdx, "implCode", e.target.value)}
+                          placeholder={`# ${c.className}를 상속받아 구현하세요\nfrom base import ${c.className}\n\nclass ${(c.className || "").replace(/Base$/, "") || "Impl"}(${c.className}):\n    pass`}
+                          rows={c.implCode ? Math.max(6, (c.implCode.match(/\n/g) || []).length + 2) : 4}
+                          style={{
+                            width: "100%", padding: "12px 14px", borderRadius: 8,
+                            border: "1px solid #E2E8F0", fontSize: 12,
+                            fontFamily: "'JetBrains Mono',monospace",
+                            outline: "none", resize: "vertical", boxSizing: "border-box",
+                            background: "#0F172A", color: "#E2E8F0", lineHeight: 1.6,
+                            tabSize: 4
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </Card>
+                )}
+
+                {/* run.py + App 저장 */}
+                <div style={{ display: "flex", gap: 10 }}>
+                  <Btn v="primary" sz="lg" onClick={() => {
+                    const classComps = allComps.filter(c => c.className);
+                    if (classComps.length === 0) { flash("클래스가 정의된 컴포넌트가 없습니다."); return; }
+                    generateBasePy();
+                    if (!basePyModal) return;
+                    const files = { "base.py": basePyModal.code };
+                    classComps.forEach(c => {
+                      if (c.implCode) {
+                        const fname = (c.className || "").replace(/Base$/, "").toLowerCase() || c.name;
+                        files[fname + ".py"] = c.implCode;
+                      }
+                    });
+                    files["run.py"] = `import subprocess\nimport sys\n\ndef main():\n    cmd = [sys.executable, "train.py"]\n    subprocess.run(cmd, check=True)\n\nif __name__ == "__main__":\n    main()\n`;
+                    let manifest = "# App: " + (form.name || "MyApp") + "\n# Files:\n";
+                    Object.keys(files).forEach(f => { manifest += "#   " + f + "\n"; });
+                    const allContent = Object.entries(files).map(([name, content]) => `${"#".repeat(60)}\n# FILE: ${name}\n${"#".repeat(60)}\n\n${content}`).join("\n\n");
+                    const blob = new Blob([allContent], { type: "text/plain" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url; a.download = (form.name || "app") + "_package.py"; a.click();
+                    URL.revokeObjectURL(url);
+                    flash("✓ App 패키지 다운로드 완료 (base.py + 구현체 + run.py)");
+                  }}>App 패키지 다운로드</Btn>
                   <Btn v="default" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
                 </div>
 
