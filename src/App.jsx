@@ -795,7 +795,8 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
     name: "", version: "1.0.0",
     envVars: [{ key: "", value: "" }],
     tasks: [{ id: tid(), name: "default-task", imported_from: null, components: [], workflow: [] }],
-    classSpec: { relationships: { composition: [], method_calls: [] } }
+    classSpec: { relationships: { composition: [], method_calls: [] } },
+    implCode: ""
   });
   const [generated, setGenerated] = useState(null);
   const [edgeFrom, setEdgeFrom] = useState("");
@@ -833,7 +834,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
     const maxOrder = t.components.reduce((m, c) => Math.max(m, c.order), 0);
     setTask(selTaskIdx, "components", [...t.components, {
       id: cid(), name: "", image: "", tag: "", gpuType: "A100", gpuCount: "2", mem: "64GB", params: "", order: maxOrder + 1,
-      className: "", attributes: [], methods: [], implCode: ""
+      className: "", attributes: [], methods: []
     }]);
   };
   const addFromLibrary = (libComp) => {
@@ -845,8 +846,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
       gpuType: "A100", gpuCount: "2", mem: "64GB", params: "", order: maxOrder + 1, libraryRef: libComp.id,
       className: libComp.className || "",
       attributes: libComp.attributes ? libComp.attributes.map(a => ({ ...a })) : [],
-      methods: libComp.methods ? libComp.methods.map(m => ({ ...m })) : [],
-      implCode: ""
+      methods: libComp.methods ? libComp.methods.map(m => ({ ...m })) : []
     }]);
     flash(`✓ ${libComp.name} 컴포넌트를 라이브러리에서 추가했습니다.`);
   };
@@ -903,13 +903,13 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
             order: c.order || 1, libraryRef: c.libraryRef || null,
             className: c.className || lib?.className || "",
             attributes: c.attributes ? c.attributes.map(a => ({ ...a })) : (lib?.attributes ? lib.attributes.map(a => ({ ...a })) : []),
-            methods: c.methods ? c.methods.map(m => ({ ...m })) : (lib?.methods ? lib.methods.map(m => ({ ...m })) : []),
-            implCode: c.implCode || ""
+            methods: c.methods ? c.methods.map(m => ({ ...m })) : (lib?.methods ? lib.methods.map(m => ({ ...m })) : [])
           };
         }),
         workflow: t.workflow || []
       })),
-      classSpec: spec.classSpec ? JSON.parse(JSON.stringify(spec.classSpec)) : { relationships: { composition: [], method_calls: [] } }
+      classSpec: spec.classSpec ? JSON.parse(JSON.stringify(spec.classSpec)) : { relationships: { composition: [], method_calls: [] } },
+      implCode: spec.implCode || ""
     });
     setEditingSpecId(spec.id);
     setSelTaskIdx(0);
@@ -923,7 +923,8 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
       name: "", version: "1.0.0",
       envVars: [{ key: "", value: "" }],
       tasks: [{ id: tid(), name: "default-task", imported_from: null, components: [], workflow: [] }],
-      classSpec: { relationships: { composition: [], method_calls: [] } }
+      classSpec: { relationships: { composition: [], method_calls: [] } },
+      implCode: ""
     });
     setEditingSpecId(null);
     setSelTaskIdx(0);
@@ -947,7 +948,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
     }));
 
     if (editingSpecId) {
-      updateSpec(editingSpecId, { name: specName, version: form.version || "1.0.0", tasks: builtTasks, classSpec: form.classSpec });
+      updateSpec(editingSpecId, { name: specName, version: form.version || "1.0.0", tasks: builtTasks, classSpec: form.classSpec, implCode: form.implCode || "" });
       flash("✓ App이 업데이트되었습니다.");
     } else {
       const specObj = {
@@ -975,7 +976,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
       addSpec({
         id: "APP-" + Math.random().toString(36).substr(2, 4).toUpperCase(),
         name: specName, version: form.version || "1.0.0", status: "ready", created: now().split(" ")[0],
-        tasks: builtTasks, imported_apps: [], classSpec: form.classSpec
+        tasks: builtTasks, imported_apps: [], classSpec: form.classSpec, implCode: form.implCode || ""
       });
       flash("✓ App 스펙 파일이 생성되었습니다.");
     }
@@ -1059,7 +1060,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
         <>
           {/* Tab bar */}
           <div role="tablist" style={{ display: "flex", background: "#F1F5F9", borderRadius: 10, padding: 3, gap: 2, marginBottom: 20, width: "fit-content" }}>
-            {[["app", "App 관리"], ["task", "Task 편집"], ["class", "클래스 설계"], ["viz", "워크플로우 시각화"]].map(([key, label]) => (
+            {[["app", "App 관리"], ["design", "컴포넌트 설계"], ["impl", "코드 구현"]].map(([key, label]) => (
               <button role="tab" key={key} onClick={() => setActiveTab(key)} aria-selected={activeTab === key} style={{
                 padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
                 fontSize: 13, fontWeight: activeTab === key ? 600 : 400,
@@ -1126,7 +1127,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 4 }}>
-                      <Btn sz="sm" onClick={() => { setSelTaskIdx(i); setActiveTab("task"); }}>편집</Btn>
+                      <Btn sz="sm" onClick={() => { setSelTaskIdx(i); setActiveTab("design"); }}>편집</Btn>
                       {form.tasks.length > 1 && <button onClick={() => deleteTask(i)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={14} c="#94A3B8" /></button>}
                     </div>
                   </div>
@@ -1137,180 +1138,9 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
             </>
           )}
 
-          {/* TAB 2: Task 편집 */}
-          {activeTab === "task" && (
-            <>
-              <Card style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Task 선택</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {form.tasks.map((t, i) => (
-                    <button key={t.id} onClick={() => setSelTaskIdx(i)} style={{ padding: "6px 14px", borderRadius: 8, border: selTaskIdx === i ? "2px solid #0F172A" : "1px solid #E2E8F0", background: selTaskIdx === i ? "#F1F5F9" : "#fff", cursor: "pointer", fontSize: 13, fontWeight: selTaskIdx === i ? 600 : 400, fontFamily: "inherit" }}>
-                      {t.name || `Task ${i + 1}`}
-                    </button>
-                  ))}
-                </div>
-              </Card>
-
-              {/* Component Visual Nodes + Workflow */}
-              <Card style={{ marginBottom: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>Component ({curTask.components.length})</div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <Btn sz="sm" onClick={addComponentManual}>직접 추가</Btn>
-                    <Btn sz="sm" v="accent" onClick={() => {}}>라이브러리에서 추가 ▾</Btn>
-                  </div>
-                </div>
-                {library && library.length > 0 && (
-                  <div style={{ marginBottom: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {library.map(lc => (
-                      <button key={lc.id} onClick={() => addFromLibrary(lc)} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #BFDBFE", background: "#EFF6FF", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#1E40AF", fontFamily: "inherit" }}>
-                        + {lc.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {curTask.components.length === 0 ? (
-                  <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 16 }}>컴포넌트를 추가하세요. 라이브러리에서 선택하거나 직접 추가할 수 있습니다.</p>
-                ) : (
-                  <>
-                    {/* Connect mode indicator */}
-                    {connectSource && (
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "#1E40AF", marginBottom: 10, padding: "8px 12px", background: "#EFF6FF", borderRadius: 8, border: "1px solid #93C5FD", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <span>→ 소스: <strong>{curTask.components.find(c => c.id === connectSource)?.name || "?"}</strong> — 타겟 노드를 클릭하세요</span>
-                        <button onClick={() => setConnectSource(null)} style={{ padding: "2px 10px", borderRadius: 4, border: "1px solid #93C5FD", background: "#DBEAFE", cursor: "pointer", fontSize: 11, color: "#1E40AF", fontFamily: "inherit", fontWeight: 600 }}>취소</button>
-                      </div>
-                    )}
-
-                    {/* Visual Node Grid */}
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginBottom: 14 }}>
-                      {curTask.components.map((c, i) => {
-                        const isSource = connectSource === c.id;
-                        const isTarget = connectSource && connectSource !== c.id;
-                        const gpuNum = parseInt(c.gpuCount) || 0;
-                        const memNum = parseInt(c.mem) || 0;
-                        const overThreshold = gpuNum >= THRESHOLD.gpu || memNum >= THRESHOLD.mem;
-                        const hasOutgoing = curTask.workflow.some(e => e.from === c.id);
-                        const hasIncoming = curTask.workflow.some(e => e.to === c.id);
-                        const isExpanded = expandedComp === c.id;
-                        return (
-                          <div key={c.id} onClick={() => { if (isTarget) handleNodeClick(c.id); }} style={{
-                            padding: 14, borderRadius: 12, cursor: isTarget ? "pointer" : "default",
-                            border: `2px solid ${isSource ? "#1D4ED8" : isTarget ? "#93C5FD" : isExpanded ? "#0F172A" : "#E2E8F0"}`,
-                            background: isSource ? "#DBEAFE" : isTarget ? "#F0F9FF" : "#FAFBFC",
-                            transition: "all .15s",
-                            boxShadow: isSource ? "0 0 0 3px rgba(29,78,216,.15)" : isTarget ? "0 0 0 2px rgba(147,197,253,.2)" : "none"
-                          }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                              <div>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A" }}>{c.name || `comp_${c.order}`}</div>
-                                {(() => { const lib = library.find(l => l.id === c.libraryRef || l.name === c.name); return lib?.className ? <div style={{ fontSize: 10, color: "#6366F1", fontFamily: "'JetBrains Mono',monospace", marginTop: 1 }}>{lib.className}</div> : null; })()}
-                                <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>#{c.order} · {c.gpuType} ×{c.gpuCount} · {c.mem}</div>
-                              </div>
-                              <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
-                                {c.libraryRef && <span style={{ fontSize: 9, background: "#EFF6FF", color: "#1E40AF", padding: "2px 5px", borderRadius: 4 }}>LIB</span>}
-                                <span style={{ fontSize: 9, padding: "2px 5px", borderRadius: 4, fontWeight: 600, background: overThreshold ? "#FEF3C7" : "#DCFCE7", color: overThreshold ? "#92400E" : "#166534" }}>
-                                  {overThreshold ? "초과" : "정상"}
-                                </span>
-                              </div>
-                            </div>
-                            <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
-                              {hasIncoming && <span style={{ fontSize: 9, background: "#DCFCE7", color: "#166534", padding: "1px 5px", borderRadius: 3 }}>IN</span>}
-                              {hasOutgoing && <span style={{ fontSize: 9, background: "#DBEAFE", color: "#1E40AF", padding: "1px 5px", borderRadius: 3 }}>OUT</span>}
-                            </div>
-                            <div style={{ display: "flex", gap: 4, borderTop: "1px solid #E2E8F0", paddingTop: 8 }}>
-                              <button title="연결" aria-label="연결" onClick={(e) => { e.stopPropagation(); setConnectSource(isSource ? null : c.id); }} style={{
-                                flex: 1, padding: "5px 0", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 700,
-                                border: `1px solid ${isSource ? "#1D4ED8" : "#E2E8F0"}`,
-                                background: isSource ? "#1D4ED8" : "#fff",
-                                color: isSource ? "#fff" : "#64748B"
-                              }}>→</button>
-                              <button title="편집" aria-label="편집" onClick={(e) => { e.stopPropagation(); setExpandedComp(isExpanded ? null : c.id); }} style={{
-                                flex: 1, padding: "5px 0", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: "inherit",
-                                border: `1px solid ${isExpanded ? "#0F172A" : "#E2E8F0"}`,
-                                background: isExpanded ? "#0F172A" : "#fff",
-                                color: isExpanded ? "#fff" : "#64748B"
-                              }}>✎</button>
-                              <button title="삭제" aria-label="삭제" onClick={(e) => { e.stopPropagation(); deleteComponent(i); if (expandedComp === c.id) setExpandedComp(null); }} style={{
-                                padding: "5px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: "inherit",
-                                border: "1px solid #FEE2E2", background: "#FFF5F5", color: "#EF4444"
-                              }}>×</button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Expanded Component Edit Panel */}
-                    {expandedComp && (() => {
-                      const compIdx = curTask.components.findIndex(c => c.id === expandedComp);
-                      if (compIdx < 0) return null;
-                      const c = curTask.components[compIdx];
-                      return (
-                        <div style={{ padding: 16, border: "2px solid #0F172A", borderRadius: 12, marginBottom: 14, background: "#FAFBFC" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>Component #{c.order}: {c.name || "unnamed"} — 상세 편집</span>
-                            <button onClick={() => setExpandedComp(null)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={15} c="#94A3B8" /></button>
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                            <InputField label="이름" value={c.name} onChange={e => setComp(selTaskIdx, compIdx, "name", e.target.value)} placeholder="component-name" />
-                            <InputField label="순서" value={String(c.order)} disabled />
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                            <InputField label="Docker 이미지 주소" value={c.image} onChange={e => setComp(selTaskIdx, compIdx, "image", e.target.value)} placeholder="registry.avatar.io/my-image" mono />
-                            <InputField label="태그" value={c.tag} onChange={e => setComp(selTaskIdx, compIdx, "tag", e.target.value)} placeholder="latest" mono />
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
-                            <InputField label="GPU 유형" value={c.gpuType} onChange={e => setComp(selTaskIdx, compIdx, "gpuType", e.target.value)} placeholder="A100" />
-                            <InputField label="GPU 수" value={c.gpuCount} onChange={e => setComp(selTaskIdx, compIdx, "gpuCount", e.target.value)} placeholder="2" />
-                            <InputField label="메모리" value={c.mem} onChange={e => setComp(selTaskIdx, compIdx, "mem", e.target.value)} placeholder="64GB" />
-                          </div>
-                          <div>
-                            <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 5 }}>파라미터 JSON</label>
-                            <textarea value={c.params} onChange={e => setComp(selTaskIdx, compIdx, "params", e.target.value)} placeholder='{"lr": 0.001, "epochs": 30}' rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Workflow Connections */}
-                    <div style={{ padding: 12, background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 8 }}>워크플로우 연결 ({curTask.workflow.length})</div>
-                      {curTask.workflow.length === 0 ? (
-                        <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 12, padding: 8, margin: 0 }}>연결이 없습니다. 컴포넌트의 → 버튼을 눌러 연결하세요.</p>
-                      ) : curTask.workflow.map((e, i) => {
-                        const fn = curTask.components.find(c => c.id === e.from);
-                        const tn = curTask.components.find(c => c.id === e.to);
-                        return (
-                          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", borderRadius: 6, background: "#fff", border: "1px solid #E2E8F0", marginBottom: 4 }}>
-                            <span style={{ fontSize: 13, color: "#334155" }}>
-                              <span style={{ fontWeight: 600 }}>{fn?.name || e.from}</span>
-                              <span style={{ color: "#94A3B8", margin: "0 8px" }}> → </span>
-                              <span style={{ fontWeight: 600 }}>{tn?.name || e.to}</span>
-                            </span>
-                            <button onClick={() => setTask(selTaskIdx, "workflow", curTask.workflow.filter((_, j) => j !== i))} style={{ padding: 2, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={14} c="#94A3B8" /></button>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Real-time Workflow Diagram */}
-                    <div style={{ marginTop: 14, padding: 14, background: "#fff", borderRadius: 10, border: "1px solid #E2E8F0" }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 8 }}>워크플로우 미리보기</div>
-                      <WorkflowDiagram components={curTask.components} workflow={curTask.workflow} />
-                    </div>
-                  </>
-                )}
-              </Card>
-
-              <Btn v="primary" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
-            </>
-          )}
-
-          {/* TAB 3: 클래스 설계 (Editable) */}
-          {activeTab === "class" && (() => {
+          {/* TAB 2: 컴포넌트 설계 (Task + Class combined) */}
+          {activeTab === "design" && (() => {
             const allComps = form.tasks.flatMap((t, ti) => t.components.map((c, ci) => ({ ...c, _taskIdx: ti, _compIdx: ci })));
-            const compClasses = allComps.filter(c => c.className);
             const cs = form.classSpec || { relationships: { composition: [], method_calls: [] } };
 
             const setCompField = (taskIdx, compIdx, key, val) => setComp(taskIdx, compIdx, key, val);
@@ -1356,7 +1186,6 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
               if (classConnectType === "composition") {
                 const attrName = (tgt.className || tgt.name).replace(/Base$/, "").replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "") + "_component";
                 newCs.relationships.composition.push({ owner: src.id, attribute: attrName, target: tgt.id });
-                // Auto-add attribute to source component
                 const srcAttrs = [...(src.attributes || [])];
                 if (!srcAttrs.some(a => a.name === attrName)) {
                   srcAttrs.push({ name: attrName, type: tgt.className || tgt.name });
@@ -1381,12 +1210,11 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
               set("classSpec", newCs);
             };
 
-            /* ── generateBasePy ── */
-            const generateBasePy = () => {
+            /* ── generateBasePyCode (returns string) ── */
+            const generateBasePyCode = () => {
               const classComps = allComps.filter(c => c.className);
-              if (classComps.length === 0) { flash("클래스가 정의된 컴포넌트가 없습니다."); return; }
+              if (classComps.length === 0) return null;
 
-              // Build dependency graph for topological sort
               const depGraph = {};
               classComps.forEach(c => { depGraph[c.id] = new Set(); });
               (cs.relationships?.composition || []).forEach(r => {
@@ -1396,13 +1224,12 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                 if (depGraph[r.caller] && depGraph[r.callee]) depGraph[r.caller].add(r.callee);
               });
 
-              // Topological sort (dependencies first)
               const sorted = [];
               const visited = new Set();
               const visiting = new Set();
               const visit = (id) => {
                 if (visited.has(id)) return;
-                if (visiting.has(id)) return; // cycle
+                if (visiting.has(id)) return;
                 visiting.add(id);
                 (depGraph[id] || new Set()).forEach(dep => visit(dep));
                 visiting.delete(id);
@@ -1413,7 +1240,6 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
 
               const sortedComps = sorted.map(id => classComps.find(c => c.id === id)).filter(Boolean);
 
-              // Build method_calls lookup: caller -> [{callerMethod, callee, calleeMethod}]
               const methodCallsByOwner = {};
               (cs.relationships?.method_calls || []).forEach(r => {
                 if (!methodCallsByOwner[r.caller]) methodCallsByOwner[r.caller] = [];
@@ -1430,7 +1256,6 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
 
                 code += `\n\nclass ${cls}(ComponentBase):\n    \"\"\"${desc}\"\"\"\n\n`;
 
-                // __init__
                 const initParams = attrs.map(a => `${a.name}: ${a.type} = None`).join(", ");
                 code += `    def __init__(self${initParams ? ", " + initParams : ""}) -> None:\n`;
                 if (attrs.length === 0) {
@@ -1439,15 +1264,12 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                   attrs.forEach(a => { code += `        self.${a.name}: ${a.type} = ${a.name}\n`; });
                 }
 
-                // Methods
                 const ownerCalls = methodCallsByOwner[comp.id] || [];
                 methods.forEach(m => {
                   const delegateCall = ownerCalls.find(mc => mc.callerMethod === m.name);
                   if (delegateCall) {
-                    // This is a delegate method
                     const calleeComp = allComps.find(c => c.id === delegateCall.callee);
                     const calleeClassName = calleeComp?.className || delegateCall.callee;
-                    // Find the attribute that holds the callee
                     const compRelation = (cs.relationships?.composition || []).find(r => r.owner === comp.id && r.target === delegateCall.callee);
                     const attrName = compRelation?.attribute || delegateCall.callee;
                     code += `\n    def ${m.name}(self, *args, **kwargs):\n`;
@@ -1466,6 +1288,12 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                 });
               });
 
+              return code;
+            };
+
+            const generateBasePy = () => {
+              const code = generateBasePyCode();
+              if (!code) { flash("클래스가 정의된 컴포넌트가 없습니다."); return; }
               setBasePyModal({ code });
             };
 
@@ -1486,7 +1314,168 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
 
             return (
               <>
-                {/* Class Cards */}
+                {/* ── Top section: Task selection + Component management ── */}
+                <Card style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Task 선택</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {form.tasks.map((t, i) => (
+                      <button key={t.id} onClick={() => setSelTaskIdx(i)} style={{ padding: "6px 14px", borderRadius: 8, border: selTaskIdx === i ? "2px solid #0F172A" : "1px solid #E2E8F0", background: selTaskIdx === i ? "#F1F5F9" : "#fff", cursor: "pointer", fontSize: 13, fontWeight: selTaskIdx === i ? 600 : 400, fontFamily: "inherit" }}>
+                        {t.name || `Task ${i + 1}`}
+                      </button>
+                    ))}
+                  </div>
+                </Card>
+
+                {/* Component Visual Nodes + Workflow */}
+                <Card style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>Component ({curTask.components.length})</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <Btn sz="sm" onClick={addComponentManual}>직접 추가</Btn>
+                      <Btn sz="sm" v="accent" onClick={() => {}}>라이브러리에서 추가 ▾</Btn>
+                    </div>
+                  </div>
+                  {library && library.length > 0 && (
+                    <div style={{ marginBottom: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {library.map(lc => (
+                        <button key={lc.id} onClick={() => addFromLibrary(lc)} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #BFDBFE", background: "#EFF6FF", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#1E40AF", fontFamily: "inherit" }}>
+                          + {lc.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {curTask.components.length === 0 ? (
+                    <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 16 }}>컴포넌트를 추가하세요. 라이브러리에서 선택하거나 직접 추가할 수 있습니다.</p>
+                  ) : (
+                    <>
+                      {connectSource && (
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1E40AF", marginBottom: 10, padding: "8px 12px", background: "#EFF6FF", borderRadius: 8, border: "1px solid #93C5FD", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <span>→ 소스: <strong>{curTask.components.find(c => c.id === connectSource)?.name || "?"}</strong> — 타겟 노드를 클릭하세요</span>
+                          <button onClick={() => setConnectSource(null)} style={{ padding: "2px 10px", borderRadius: 4, border: "1px solid #93C5FD", background: "#DBEAFE", cursor: "pointer", fontSize: 11, color: "#1E40AF", fontFamily: "inherit", fontWeight: 600 }}>취소</button>
+                        </div>
+                      )}
+
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginBottom: 14 }}>
+                        {curTask.components.map((c, i) => {
+                          const isSource = connectSource === c.id;
+                          const isTarget = connectSource && connectSource !== c.id;
+                          const gpuNum = parseInt(c.gpuCount) || 0;
+                          const memNum = parseInt(c.mem) || 0;
+                          const overThreshold = gpuNum >= THRESHOLD.gpu || memNum >= THRESHOLD.mem;
+                          const hasOutgoing = curTask.workflow.some(e => e.from === c.id);
+                          const hasIncoming = curTask.workflow.some(e => e.to === c.id);
+                          const isExpanded = expandedComp === c.id;
+                          return (
+                            <div key={c.id} onClick={() => { if (isTarget) handleNodeClick(c.id); }} style={{
+                              padding: 14, borderRadius: 12, cursor: isTarget ? "pointer" : "default",
+                              border: `2px solid ${isSource ? "#1D4ED8" : isTarget ? "#93C5FD" : isExpanded ? "#0F172A" : "#E2E8F0"}`,
+                              background: isSource ? "#DBEAFE" : isTarget ? "#F0F9FF" : "#FAFBFC",
+                              transition: "all .15s",
+                              boxShadow: isSource ? "0 0 0 3px rgba(29,78,216,.15)" : isTarget ? "0 0 0 2px rgba(147,197,253,.2)" : "none"
+                            }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                                <div>
+                                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A" }}>{c.name || `comp_${c.order}`}</div>
+                                  {(() => { const lib = library.find(l => l.id === c.libraryRef || l.name === c.name); return lib?.className ? <div style={{ fontSize: 10, color: "#6366F1", fontFamily: "'JetBrains Mono',monospace", marginTop: 1 }}>{lib.className}</div> : null; })()}
+                                  <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>#{c.order} · {c.gpuType} ×{c.gpuCount} · {c.mem}</div>
+                                </div>
+                                <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+                                  {c.libraryRef && <span style={{ fontSize: 9, background: "#EFF6FF", color: "#1E40AF", padding: "2px 5px", borderRadius: 4 }}>LIB</span>}
+                                  <span style={{ fontSize: 9, padding: "2px 5px", borderRadius: 4, fontWeight: 600, background: overThreshold ? "#FEF3C7" : "#DCFCE7", color: overThreshold ? "#92400E" : "#166534" }}>
+                                    {overThreshold ? "초과" : "정상"}
+                                  </span>
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+                                {hasIncoming && <span style={{ fontSize: 9, background: "#DCFCE7", color: "#166534", padding: "1px 5px", borderRadius: 3 }}>IN</span>}
+                                {hasOutgoing && <span style={{ fontSize: 9, background: "#DBEAFE", color: "#1E40AF", padding: "1px 5px", borderRadius: 3 }}>OUT</span>}
+                              </div>
+                              <div style={{ display: "flex", gap: 4, borderTop: "1px solid #E2E8F0", paddingTop: 8 }}>
+                                <button title="연결" aria-label="연결" onClick={(e) => { e.stopPropagation(); setConnectSource(isSource ? null : c.id); }} style={{
+                                  flex: 1, padding: "5px 0", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 700,
+                                  border: `1px solid ${isSource ? "#1D4ED8" : "#E2E8F0"}`,
+                                  background: isSource ? "#1D4ED8" : "#fff",
+                                  color: isSource ? "#fff" : "#64748B"
+                                }}>→</button>
+                                <button title="편집" aria-label="편집" onClick={(e) => { e.stopPropagation(); setExpandedComp(isExpanded ? null : c.id); }} style={{
+                                  flex: 1, padding: "5px 0", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: "inherit",
+                                  border: `1px solid ${isExpanded ? "#0F172A" : "#E2E8F0"}`,
+                                  background: isExpanded ? "#0F172A" : "#fff",
+                                  color: isExpanded ? "#fff" : "#64748B"
+                                }}>✎</button>
+                                <button title="삭제" aria-label="삭제" onClick={(e) => { e.stopPropagation(); deleteComponent(i); if (expandedComp === c.id) setExpandedComp(null); }} style={{
+                                  padding: "5px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: "inherit",
+                                  border: "1px solid #FEE2E2", background: "#FFF5F5", color: "#EF4444"
+                                }}>×</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {expandedComp && (() => {
+                        const compIdx = curTask.components.findIndex(c => c.id === expandedComp);
+                        if (compIdx < 0) return null;
+                        const c = curTask.components[compIdx];
+                        return (
+                          <div style={{ padding: 16, border: "2px solid #0F172A", borderRadius: 12, marginBottom: 14, background: "#FAFBFC" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>Component #{c.order}: {c.name || "unnamed"} — 상세 편집</span>
+                              <button onClick={() => setExpandedComp(null)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={15} c="#94A3B8" /></button>
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                              <InputField label="이름" value={c.name} onChange={e => setComp(selTaskIdx, compIdx, "name", e.target.value)} placeholder="component-name" />
+                              <InputField label="순서" value={String(c.order)} disabled />
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                              <InputField label="Docker 이미지 주소" value={c.image} onChange={e => setComp(selTaskIdx, compIdx, "image", e.target.value)} placeholder="registry.avatar.io/my-image" mono />
+                              <InputField label="태그" value={c.tag} onChange={e => setComp(selTaskIdx, compIdx, "tag", e.target.value)} placeholder="latest" mono />
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                              <InputField label="GPU 유형" value={c.gpuType} onChange={e => setComp(selTaskIdx, compIdx, "gpuType", e.target.value)} placeholder="A100" />
+                              <InputField label="GPU 수" value={c.gpuCount} onChange={e => setComp(selTaskIdx, compIdx, "gpuCount", e.target.value)} placeholder="2" />
+                              <InputField label="메모리" value={c.mem} onChange={e => setComp(selTaskIdx, compIdx, "mem", e.target.value)} placeholder="64GB" />
+                            </div>
+                            <div>
+                              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 5 }}>파라미터 JSON</label>
+                              <textarea value={c.params} onChange={e => setComp(selTaskIdx, compIdx, "params", e.target.value)} placeholder='{"lr": 0.001, "epochs": 30}' rows={2} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Workflow Connections */}
+                      <div style={{ padding: 12, background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 8 }}>워크플로우 연결 ({curTask.workflow.length})</div>
+                        {curTask.workflow.length === 0 ? (
+                          <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 12, padding: 8, margin: 0 }}>연결이 없습니다. 컴포넌트의 → 버튼을 눌러 연결하세요.</p>
+                        ) : curTask.workflow.map((e, i) => {
+                          const fn = curTask.components.find(c => c.id === e.from);
+                          const tn = curTask.components.find(c => c.id === e.to);
+                          return (
+                            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", borderRadius: 6, background: "#fff", border: "1px solid #E2E8F0", marginBottom: 4 }}>
+                              <span style={{ fontSize: 13, color: "#334155" }}>
+                                <span style={{ fontWeight: 600 }}>{fn?.name || e.from}</span>
+                                <span style={{ color: "#94A3B8", margin: "0 8px" }}> → </span>
+                                <span style={{ fontWeight: 600 }}>{tn?.name || e.to}</span>
+                              </span>
+                              <button onClick={() => setTask(selTaskIdx, "workflow", curTask.workflow.filter((_, j) => j !== i))} style={{ padding: 2, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={14} c="#94A3B8" /></button>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Real-time Workflow Diagram */}
+                      <div style={{ marginTop: 14, padding: 14, background: "#fff", borderRadius: 10, border: "1px solid #E2E8F0" }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 8 }}>워크플로우 미리보기</div>
+                        <WorkflowDiagram components={curTask.components} workflow={curTask.workflow} />
+                      </div>
+                    </>
+                  )}
+                </Card>
+
+                {/* ── Middle section: Class design ── */}
                 <Card style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>컴포넌트 클래스 설계</div>
                   <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 14px" }}>각 컴포넌트의 className, attributes, methods를 편집합니다.</p>
@@ -1495,7 +1484,6 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                     <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>컴포넌트를 먼저 추가하세요.</p>
                   ) : (
                     <>
-                      {/* Class connect mode indicator */}
                       {classConnectSource && (
                         <div style={{ fontSize: 12, fontWeight: 600, color: "#6366F1", marginBottom: 10, padding: "8px 12px", background: "#EEF2FF", borderRadius: 8, border: "1px solid #C7D2FE", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                           <span>◆ 소스: <strong>{allComps.find(c => c.id === classConnectSource)?.className || allComps.find(c => c.id === classConnectSource)?.name || "?"}</strong> — 타겟 클래스를 클릭하세요</span>
@@ -1516,14 +1504,12 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                               transition: "all .15s",
                               boxShadow: isSource ? "0 0 0 3px rgba(99,102,241,.15)" : "none"
                             }}>
-                              {/* className input */}
                               <div style={{ marginBottom: 10 }}>
                                 <label style={{ fontSize: 10, fontWeight: 600, color: "#6366F1", letterSpacing: 0.5, textTransform: "uppercase" }}>Class Name</label>
                                 <input value={c.className || ""} onChange={e => setCompField(c._taskIdx, c._compIdx, "className", e.target.value)} placeholder="ClassName" onClick={e => e.stopPropagation()} style={{ display: "block", width: "100%", padding: "6px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 14, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", color: "#0F172A", outline: "none", boxSizing: "border-box", marginTop: 3, background: "#fff" }} />
                                 <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{c.name} #{c.order}</div>
                               </div>
 
-                              {/* Attributes */}
                               <div style={{ marginBottom: 10 }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                                   <span style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>Attributes ({(c.attributes || []).length})</span>
@@ -1538,7 +1524,6 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                                 ))}
                               </div>
 
-                              {/* Methods */}
                               <div style={{ marginBottom: 10 }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                                   <span style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>Methods ({(c.methods || []).length})</span>
@@ -1563,7 +1548,6 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                                 ))}
                               </div>
 
-                              {/* Connect button */}
                               <div style={{ borderTop: "1px solid #E2E8F0", paddingTop: 8 }}>
                                 <button onClick={(e) => { e.stopPropagation(); setClassConnectSource(isSource ? null : c.id); }} style={{
                                   width: "100%", padding: "6px 0", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: "inherit", fontWeight: 600,
@@ -1655,89 +1639,9 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                   </Card>
                 )}
 
-                {/* Generate base.py button */}
+                {/* ── Bottom section: Base Class generation ── */}
                 <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
                   <Btn v="primary" sz="lg" onClick={generateBasePy}>Base Class 생성</Btn>
-                </div>
-
-                {/* Implementation Code Editors */}
-                {allComps.some(c => c.className) && (
-                  <Card style={{ marginBottom: 14 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700 }}>구현체 코드 작성</div>
-                      <button onClick={() => {
-                        allComps.filter(c => c.className && c.methods?.some(m => m.isAbstract)).forEach(c => {
-                          if (c.implCode) return;
-                          const cls = c.className;
-                          const implCls = cls.replace(/Base$/, "") || cls + "Impl";
-                          let tmpl = `from base import ${cls}\n\n\nclass ${implCls}(${cls}):\n    \"\"\"${c.name} 구현체\"\"\"\n`;
-                          (c.methods || []).filter(m => m.isAbstract).forEach(m => {
-                            tmpl += `\n    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n        # TODO: 구현 필요\n        raise NotImplementedError\n`;
-                          });
-                          setCompField(c._taskIdx, c._compIdx, "implCode", tmpl);
-                        });
-                        flash("✓ 구현체 템플릿이 생성되었습니다.");
-                      }} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>
-                        구현체 템플릿 생성
-                      </button>
-                    </div>
-                    <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 14px" }}>base class의 abstract 메서드를 구현합니다. 각 컴포넌트별 구현 코드를 작성하세요.</p>
-                    {allComps.filter(c => c.className).map(c => (
-                      <div key={c.id} style={{ marginBottom: 12 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: "#0F172A" }}>{c.className.replace(/Base$/, "") || c.className}.py</span>
-                          <span style={{ fontSize: 10, color: "#94A3B8" }}>← {c.className} 구현</span>
-                          {c.methods?.some(m => m.isAbstract) && !c.implCode && (
-                            <span style={{ fontSize: 9, background: "#FEF3C7", color: "#92400E", padding: "2px 6px", borderRadius: 4 }}>구현 필요</span>
-                          )}
-                          {c.implCode && (
-                            <span style={{ fontSize: 9, background: "#DCFCE7", color: "#166534", padding: "2px 6px", borderRadius: 4 }}>작성됨</span>
-                          )}
-                        </div>
-                        <textarea
-                          value={c.implCode || ""}
-                          onChange={e => setCompField(c._taskIdx, c._compIdx, "implCode", e.target.value)}
-                          placeholder={`# ${c.className}를 상속받아 구현하세요\nfrom base import ${c.className}\n\nclass ${(c.className || "").replace(/Base$/, "") || "Impl"}(${c.className}):\n    pass`}
-                          rows={c.implCode ? Math.max(6, (c.implCode.match(/\n/g) || []).length + 2) : 4}
-                          style={{
-                            width: "100%", padding: "12px 14px", borderRadius: 8,
-                            border: "1px solid #E2E8F0", fontSize: 12,
-                            fontFamily: "'JetBrains Mono',monospace",
-                            outline: "none", resize: "vertical", boxSizing: "border-box",
-                            background: "#0F172A", color: "#E2E8F0", lineHeight: 1.6,
-                            tabSize: 4
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </Card>
-                )}
-
-                {/* run.py + App 저장 */}
-                <div style={{ display: "flex", gap: 10 }}>
-                  <Btn v="primary" sz="lg" onClick={() => {
-                    const classComps = allComps.filter(c => c.className);
-                    if (classComps.length === 0) { flash("클래스가 정의된 컴포넌트가 없습니다."); return; }
-                    generateBasePy();
-                    if (!basePyModal) return;
-                    const files = { "base.py": basePyModal.code };
-                    classComps.forEach(c => {
-                      if (c.implCode) {
-                        const fname = (c.className || "").replace(/Base$/, "").toLowerCase() || c.name;
-                        files[fname + ".py"] = c.implCode;
-                      }
-                    });
-                    files["run.py"] = `import subprocess\nimport sys\n\ndef main():\n    cmd = [sys.executable, "train.py"]\n    subprocess.run(cmd, check=True)\n\nif __name__ == "__main__":\n    main()\n`;
-                    let manifest = "# App: " + (form.name || "MyApp") + "\n# Files:\n";
-                    Object.keys(files).forEach(f => { manifest += "#   " + f + "\n"; });
-                    const allContent = Object.entries(files).map(([name, content]) => `${"#".repeat(60)}\n# FILE: ${name}\n${"#".repeat(60)}\n\n${content}`).join("\n\n");
-                    const blob = new Blob([allContent], { type: "text/plain" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url; a.download = (form.name || "app") + "_package.py"; a.click();
-                    URL.revokeObjectURL(url);
-                    flash("✓ App 패키지 다운로드 완료 (base.py + 구현체 + run.py)");
-                  }}>App 패키지 다운로드</Btn>
                   <Btn v="default" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
                 </div>
 
@@ -1761,28 +1665,181 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
             );
           })()}
 
-          {/* TAB 4: 워크플로우 시각화 */}
-          {activeTab === "viz" && (
-            <>
-              <Card style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Task 선택</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {form.tasks.map((t, i) => (
-                    <button key={t.id} onClick={() => setSelTaskIdx(i)} style={{ padding: "6px 14px", borderRadius: 8, border: selTaskIdx === i ? "2px solid #0F172A" : "1px solid #E2E8F0", background: selTaskIdx === i ? "#F1F5F9" : "#fff", cursor: "pointer", fontSize: 13, fontWeight: selTaskIdx === i ? 600 : 400, fontFamily: "inherit" }}>
-                      {t.name || `Task ${i + 1}`}
-                    </button>
-                  ))}
+          {/* TAB 3: 코드 구현 */}
+          {activeTab === "impl" && (() => {
+            const allComps = form.tasks.flatMap((t, ti) => t.components.map((c, ci) => ({ ...c, _taskIdx: ti, _compIdx: ci })));
+            const cs = form.classSpec || { relationships: { composition: [], method_calls: [] } };
+
+            /* ── generateBasePyCode (same logic, returns string) ── */
+            const generateBasePyCode = () => {
+              const classComps = allComps.filter(c => c.className);
+              if (classComps.length === 0) return null;
+
+              const depGraph = {};
+              classComps.forEach(c => { depGraph[c.id] = new Set(); });
+              (cs.relationships?.composition || []).forEach(r => {
+                if (depGraph[r.owner] && depGraph[r.target]) depGraph[r.owner].add(r.target);
+              });
+              (cs.relationships?.method_calls || []).forEach(r => {
+                if (depGraph[r.caller] && depGraph[r.callee]) depGraph[r.caller].add(r.callee);
+              });
+
+              const sorted = [];
+              const visited = new Set();
+              const visiting = new Set();
+              const visit = (id) => {
+                if (visited.has(id)) return;
+                if (visiting.has(id)) return;
+                visiting.add(id);
+                (depGraph[id] || new Set()).forEach(dep => visit(dep));
+                visiting.delete(id);
+                visited.add(id);
+                sorted.push(id);
+              };
+              classComps.forEach(c => visit(c.id));
+
+              const sortedComps = sorted.map(id => classComps.find(c => c.id === id)).filter(Boolean);
+
+              const methodCallsByOwner = {};
+              (cs.relationships?.method_calls || []).forEach(r => {
+                if (!methodCallsByOwner[r.caller]) methodCallsByOwner[r.caller] = [];
+                methodCallsByOwner[r.caller].push(r);
+              });
+
+              let code = "from abc import ABC, abstractmethod\nfrom typing import Any, Optional\n\n\nclass ComponentBase(ABC):\n    \"\"\"Common base type for all workflow components.\"\"\"\n    pass\n";
+
+              sortedComps.forEach(comp => {
+                const cls = comp.className;
+                const attrs = comp.attributes || [];
+                const methods = comp.methods || [];
+                const desc = comp.name || cls;
+
+                code += `\n\nclass ${cls}(ComponentBase):\n    \"\"\"${desc}\"\"\"\n\n`;
+
+                const initParams = attrs.map(a => `${a.name}: ${a.type} = None`).join(", ");
+                code += `    def __init__(self${initParams ? ", " + initParams : ""}) -> None:\n`;
+                if (attrs.length === 0) {
+                  code += `        pass\n`;
+                } else {
+                  attrs.forEach(a => { code += `        self.${a.name}: ${a.type} = ${a.name}\n`; });
+                }
+
+                const ownerCalls = methodCallsByOwner[comp.id] || [];
+                methods.forEach(m => {
+                  const delegateCall = ownerCalls.find(mc => mc.callerMethod === m.name);
+                  if (delegateCall) {
+                    const calleeComp = allComps.find(c => c.id === delegateCall.callee);
+                    const calleeClassName = calleeComp?.className || delegateCall.callee;
+                    const compRelation = (cs.relationships?.composition || []).find(r => r.owner === comp.id && r.target === delegateCall.callee);
+                    const attrName = compRelation?.attribute || delegateCall.callee;
+                    code += `\n    def ${m.name}(self, *args, **kwargs):\n`;
+                    code += `        \"\"\"Delegate: ${cls} -> ${calleeClassName}\"\"\"\n`;
+                    code += `        if self.${attrName} is None:\n`;
+                    code += `            raise ValueError('${attrName} is not set.')\n`;
+                    code += `        self.${attrName}.${delegateCall.calleeMethod}(*args, **kwargs)\n`;
+                  } else if (m.isAbstract) {
+                    code += `\n    @abstractmethod\n`;
+                    code += `    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n`;
+                    code += `        pass\n`;
+                  } else {
+                    code += `\n    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n`;
+                    code += `        pass\n`;
+                  }
+                });
+              });
+
+              return code;
+            };
+
+            const generatedBasePyCode = generateBasePyCode();
+
+            const generateImplTemplate = () => {
+              const classComps = allComps.filter(c => c.className && c.methods?.some(m => m.isAbstract));
+              if (classComps.length === 0) { flash("abstract 메서드가 있는 클래스가 없습니다."); return; }
+
+              const imports = classComps.map(c => c.className).join(", ");
+              let tmpl = `# ${"=".repeat(43)}\n# 구현체 코드 (아래에 작성)\n# ${"=".repeat(43)}\n\nfrom base import ${imports}\n`;
+
+              classComps.forEach(c => {
+                const cls = c.className;
+                const implCls = cls.replace(/Base$/, "") || cls + "Impl";
+                tmpl += `\n\nclass ${implCls}(${cls}):\n    \"\"\"${c.name} 구현체\"\"\"\n`;
+                (c.methods || []).filter(m => m.isAbstract).forEach(m => {
+                  tmpl += `\n    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n        # TODO: 구현 필요\n        raise NotImplementedError\n`;
+                });
+              });
+
+              set("implCode", tmpl);
+              flash("✓ 구현체 템플릿이 생성되었습니다.");
+            };
+
+            const downloadPackage = () => {
+              const baseCode = generatedBasePyCode;
+              if (!baseCode) { flash("클래스가 정의된 컴포넌트가 없습니다."); return; }
+              const combined = baseCode + "\n\n" + (form.implCode || "# 구현체 코드 없음\n");
+              const blob = new Blob([combined], { type: "text/x-python" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = (form.name || "app") + "_package.py"; a.click();
+              URL.revokeObjectURL(url);
+              flash("✓ App 패키지 다운로드 완료 (base.py + 구현체)");
+            };
+
+            return (
+              <>
+                <Card style={{ marginBottom: 14 }}>
+                  {!generatedBasePyCode ? (
+                    <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>
+                      클래스가 정의된 컴포넌트가 없습니다. "컴포넌트 설계" 탭에서 className을 설정하세요.
+                    </p>
+                  ) : (
+                    <>
+                      {/* Zone 1: Read-only base.py */}
+                      <div style={{ marginBottom: 2 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700 }}>base.py (자동 생성)</span>
+                          <span style={{ fontSize: 11, color: "#94A3B8" }}>읽기 전용</span>
+                        </div>
+                        <pre style={{ background: "#1E293B", borderRadius: "10px 10px 0 0", padding: 16, fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: "#94A3B8", margin: 0, overflow: "auto", maxHeight: 400, lineHeight: 1.6, whiteSpace: "pre" }}>
+                          {generatedBasePyCode}
+                        </pre>
+                      </div>
+
+                      {/* Zone 2: Editable implementation */}
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, marginTop: 16 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700 }}>구현체 코드</span>
+                          <button onClick={generateImplTemplate} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>
+                            구현체 템플릿 생성
+                          </button>
+                        </div>
+                        <textarea
+                          value={form.implCode || ""}
+                          onChange={e => set("implCode", e.target.value)}
+                          placeholder={"# " + "=".repeat(43) + "\n# 구현체 코드 (아래에 작성)\n# " + "=".repeat(43) + "\n\n# 위 base.py의 abstract 메서드를 구현하세요.\n# '구현체 템플릿 생성' 버튼을 클릭하면 스켈레톤 코드가 자동 생성됩니다."}
+                          style={{
+                            width: "100%", minHeight: 400, padding: "16px 14px",
+                            background: "#0F172A", color: "#E2E8F0",
+                            borderRadius: "0 0 10px 10px",
+                            border: "none", fontSize: 12,
+                            fontFamily: "'JetBrains Mono',monospace",
+                            outline: "none", resize: "vertical", boxSizing: "border-box",
+                            lineHeight: 1.6, tabSize: 4
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
+                </Card>
+
+                {/* Bottom buttons */}
+                <div style={{ display: "flex", gap: 10 }}>
+                  <Btn v="primary" sz="lg" icon="dl" onClick={downloadPackage}>App 패키지 다운로드</Btn>
+                  <Btn v="default" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
                 </div>
-              </Card>
-
-              <Card style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>워크플로우 다이어그램 — {curTask.name || "Task"}</div>
-                <WorkflowDiagram components={curTask.components} workflow={curTask.workflow} />
-              </Card>
-
-              <Btn v="primary" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
-            </>
-          )}
+              </>
+            );
+          })()}
         </>
       )}
     </div>
