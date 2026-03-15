@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 /* ═══════════════════════════════════════════════════════
-   AVATAR OnE  v1.6  —  ML/RL Training Platform Demo
+   AVATAR OnE  v1.7  —  ML/RL Training Platform Demo
+
+   v1.7 Changes:
+   · Component library: className, attributes, methods
+   · Builder "클래스 설계" tab with base class preview
+   · RCP blade optimization sample App (APP-003)
 
    v1.6 Changes:
    · Developer pre-test execution in Trainer (TR-09)
@@ -9,15 +14,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
    · Admin review of attached results (AP-06)
    · loopTest data structure: attachedToRequest, reviewedBy, reviewedAt
 
-   v1.5 Changes:
-   · Pipeline→Avatar App terminology transition
-   · 3-tier hierarchy: App → Task → Component
-   · Component Global Library (system-wide reusable catalog)
-   · Trainer screen (separate from Builder for RL training)
-   · Mandatory minimum execution test for all approval-requiring workloads
-   · App Import (BL-12)
-
-   Flow: Builder → Trainer (+ pre-test) → Review/Approval → Queue → Run → Model
+   Flow: Builder → Trainer (+ pre-test) → Review/Approval → Queue → Run → Model → Operator
    ═══════════════════════════════════════════════════════ */
 
 const uid = () => "WL-" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 3).toUpperCase();
@@ -58,6 +55,36 @@ const INIT_SPECS = [
     ],
     imported_apps: []
   },
+  { id: "APP-003", name: "RCP-BladeOpt", version: "1.0.0", status: "ready", created: "2025-03-01",
+    tasks: [
+      { id: "TASK-RCP-01", name: "blade-optimization", imported_from: null,
+        components: [
+          { id: "C-RCP-01", name: "rcp-setup", image: "registry.avatar.io/rcp-setup:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 1, libraryRef: "CL-10" },
+          { id: "C-RCP-02", name: "multi-agent", image: "registry.avatar.io/multi-agent:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 2, libraryRef: "CL-13" },
+          { id: "C-RCP-03", name: "environment", image: "registry.avatar.io/environment:1.0", tag: "1.0", gpu_type: "A100", gpu_count: 2, mem: "64GB", params: {}, order: 3, libraryRef: "CL-14" },
+          { id: "C-RCP-04", name: "train", image: "registry.avatar.io/train:1.0", tag: "1.0", gpu_type: "A100", gpu_count: 4, mem: "128GB", params: {}, order: 4, libraryRef: "CL-15" },
+        ],
+        workflow: [{ from: "C-RCP-01", to: "C-RCP-04" }, { from: "C-RCP-02", to: "C-RCP-04" }, { from: "C-RCP-03", to: "C-RCP-04" }]
+      }
+    ],
+    imported_apps: [],
+    classSpec: {
+      relationships: {
+        composition: [
+          { owner: "C-RCP-02", attribute: "impeller_agent", target: "ImpellerAgentBase" },
+          { owner: "C-RCP-02", attribute: "diffuser_agent", target: "DiffuserAgentBase" },
+          { owner: "C-RCP-04", attribute: "rcp_setup_component", target: "C-RCP-01" },
+          { owner: "C-RCP-04", attribute: "multi_agent_component", target: "C-RCP-02" },
+          { owner: "C-RCP-04", attribute: "environment_component", target: "C-RCP-03" },
+        ],
+        method_calls: [
+          { caller: "C-RCP-04", callerMethod: "apply_rcp_setup", callee: "C-RCP-01", calleeMethod: "provide_state_to_train" },
+          { caller: "C-RCP-04", callerMethod: "apply_multi_agent", callee: "C-RCP-02", calleeMethod: "setup_agents_from_train" },
+          { caller: "C-RCP-04", callerMethod: "execute_environment_run", callee: "C-RCP-03", calleeMethod: "execute_run_cfx" },
+        ]
+      }
+    }
+  },
 ];
 
 const INIT_LIBRARY = [
@@ -67,6 +94,37 @@ const INIT_LIBRARY = [
   { id: "CL-04", name: "data-loader", image: "registry.avatar.io/data-loader:1.0", description: "데이터 로더", version: "1.0", created: "2025-01-10" },
   { id: "CL-05", name: "preprocessor", image: "registry.avatar.io/preprocessor:2.1", description: "데이터 전처리기", version: "2.1", created: "2025-01-12" },
   { id: "CL-06", name: "evaluator", image: "registry.avatar.io/evaluator:1.5", description: "모델 평가기", version: "1.5", created: "2025-01-18" },
+  // RCP 블레이드 최적화 컴포넌트
+  { id: "CL-10", name: "rcp-setup", image: "registry.avatar.io/rcp-setup:1.0", description: "RCP 블레이드 상태 초기화", version: "1.0", created: "2025-03-01",
+    className: "RCPSetupBase",
+    attributes: [{ name: "n_layer", type: "int" }, { name: "impeller_a_variation_ratio", type: "float" }, { name: "diffuser_a_variation_ratio", type: "float" }, { name: "blade_layers", type: "Any" }],
+    methods: [{ name: "initialize_state_for_index", params: "s, sr, i", returnType: "None", isAbstract: true }, { name: "provide_state_to_train", params: "s, sr, i", returnType: "None", isAbstract: false }]
+  },
+  { id: "CL-11", name: "impeller-agent", image: "registry.avatar.io/impeller-agent:1.0", description: "임펠러 에이전트 (상태 정규화)", version: "1.0", created: "2025-03-01",
+    className: "ImpellerAgentBase",
+    attributes: [{ name: "n_layer", type: "int" }, { name: "impeller_blade_number", type: "float" }, { name: "impeller_blade_number_min", type: "int" }, { name: "impeller_blade_number_max", type: "int" }, { name: "impeller_a_variation_ratio", type: "float" }],
+    methods: [{ name: "impeller_agent_setup", params: "s, i", returnType: "None", isAbstract: true }]
+  },
+  { id: "CL-12", name: "diffuser-agent", image: "registry.avatar.io/diffuser-agent:1.0", description: "디퓨저 에이전트 (상태 정규화)", version: "1.0", created: "2025-03-01",
+    className: "DiffuserAgentBase",
+    attributes: [{ name: "n_layer", type: "int" }, { name: "diffuser_blade_number", type: "float" }, { name: "diffuser_blade_number_min", type: "int" }, { name: "diffuser_blade_number_max", type: "int" }, { name: "diffuser_a_variation_ratio", type: "float" }],
+    methods: [{ name: "diffuser_agent_setup", params: "s, i", returnType: "None", isAbstract: true }]
+  },
+  { id: "CL-13", name: "multi-agent", image: "registry.avatar.io/multi-agent:1.0", description: "다중 에이전트 조합", version: "1.0", created: "2025-03-01",
+    className: "MultiAgentBase",
+    attributes: [{ name: "impeller_agent", type: "ImpellerAgentBase" }, { name: "diffuser_agent", type: "DiffuserAgentBase" }],
+    methods: [{ name: "setup", params: "s, i", returnType: "None", isAbstract: true }, { name: "setup_agents_from_train", params: "s, i", returnType: "None", isAbstract: false }]
+  },
+  { id: "CL-14", name: "environment", image: "registry.avatar.io/environment:1.0", description: "시뮬레이션 환경 (MakeBlade + Mesh + RunCFX)", version: "1.0", created: "2025-03-01",
+    className: "EnvironmentBase",
+    attributes: [{ name: "make_blade", type: "MakeBladeBase" }, { name: "mesh_generator", type: "MeshGeneratorBase" }, { name: "run_cfx", type: "RunCFXBase" }],
+    methods: [{ name: "execute_make_blade", params: "*args, **kwargs", returnType: "None", isAbstract: false }, { name: "execute_mesh_generation", params: "*args, **kwargs", returnType: "bool", isAbstract: false }, { name: "execute_run_cfx", params: "", returnType: "None", isAbstract: false }]
+  },
+  { id: "CL-15", name: "train", image: "registry.avatar.io/train:1.0", description: "학습 오케스트레이터", version: "1.0", created: "2025-03-01",
+    className: "TrainBase",
+    attributes: [{ name: "args", type: "Any" }, { name: "rcp_setup_component", type: "RCPSetupBase" }, { name: "multi_agent_component", type: "MultiAgentBase" }, { name: "environment_component", type: "EnvironmentBase" }],
+    methods: [{ name: "apply_rcp_setup", params: "s, sr, i", returnType: "None", isAbstract: false }, { name: "apply_multi_agent", params: "s, i", returnType: "None", isAbstract: false }, { name: "execute_environment_run", params: "", returnType: "None", isAbstract: false }, { name: "run", params: "", returnType: "None", isAbstract: true }]
+  },
 ];
 
 const INIT_TEST_RUNS = [
@@ -973,7 +1031,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
         <>
           {/* Tab bar */}
           <div role="tablist" style={{ display: "flex", background: "#F1F5F9", borderRadius: 10, padding: 3, gap: 2, marginBottom: 20, width: "fit-content" }}>
-            {[["app", "App 관리"], ["task", "Task 편집"], ["viz", "워크플로우 시각화"]].map(([key, label]) => (
+            {[["app", "App 관리"], ["task", "Task 편집"], ["class", "클래스 설계"], ["viz", "워크플로우 시각화"]].map(([key, label]) => (
               <button role="tab" key={key} onClick={() => setActiveTab(key)} aria-selected={activeTab === key} style={{
                 padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
                 fontSize: 13, fontWeight: activeTab === key ? 600 : 400,
@@ -1118,6 +1176,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                               <div>
                                 <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A" }}>{c.name || `comp_${c.order}`}</div>
+                                {(() => { const lib = library.find(l => l.id === c.libraryRef || l.name === c.name); return lib?.className ? <div style={{ fontSize: 10, color: "#6366F1", fontFamily: "'JetBrains Mono',monospace", marginTop: 1 }}>{lib.className}</div> : null; })()}
                                 <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>#{c.order} · {c.gpuType} ×{c.gpuCount} · {c.mem}</div>
                               </div>
                               <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
@@ -1220,7 +1279,87 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
             </>
           )}
 
-          {/* TAB 3: 워크플로우 시각화 */}
+          {/* TAB 3: 클래스 설계 */}
+          {activeTab === "class" && (() => {
+            const spec = editingSpecId ? specs.find(s => s.id === editingSpecId) : null;
+            const cs = spec?.classSpec;
+            const allComps = form.tasks.flatMap(t => t.components);
+            const compClasses = allComps.map(c => {
+              const lib = library.find(l => l.id === c.libraryRef || l.name === c.name);
+              return lib?.className ? { id: c.id, name: c.name, className: lib.className, attributes: lib.attributes || [], methods: lib.methods || [] } : null;
+            }).filter(Boolean);
+            return (
+              <>
+                {compClasses.length === 0 ? (
+                  <Card><p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>이 App에는 클래스 설계 정보가 있는 컴포넌트가 없습니다.</p></Card>
+                ) : (
+                  <>
+                    <Card style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>컴포넌트 클래스 ({compClasses.length})</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+                        {compClasses.map(cc => (
+                          <div key={cc.id} style={{ padding: 14, borderRadius: 10, border: "1px solid #E2E8F0", background: "#FAFBFC" }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 2 }}>{cc.className}</div>
+                            <div style={{ fontSize: 11, color: "#64748B", marginBottom: 10 }}>{cc.name}</div>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 4 }}>Attributes ({cc.attributes.length})</div>
+                            {cc.attributes.map((a, i) => (
+                              <div key={i} style={{ fontSize: 11, color: "#334155", fontFamily: "'JetBrains Mono',monospace", padding: "2px 0" }}>
+                                {a.name}: <span style={{ color: "#6366F1" }}>{a.type}</span>
+                              </div>
+                            ))}
+                            <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", marginTop: 8, marginBottom: 4 }}>Methods ({cc.methods.length})</div>
+                            {cc.methods.map((m, i) => (
+                              <div key={i} style={{ fontSize: 11, color: "#334155", fontFamily: "'JetBrains Mono',monospace", padding: "2px 0", display: "flex", alignItems: "center", gap: 4 }}>
+                                {m.isAbstract && <span style={{ fontSize: 9, background: "#FEF3C7", color: "#92400E", padding: "1px 4px", borderRadius: 3, fontFamily: "inherit" }}>abstract</span>}
+                                {m.name}({m.params}) → {m.returnType}
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
+                    {cs && (
+                      <Card style={{ marginBottom: 14 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>컴포넌트 관계</div>
+                        {cs.relationships?.composition?.length > 0 && (
+                          <>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6 }}>Composition (소유)</div>
+                            {cs.relationships.composition.map((r, i) => {
+                              const ownerComp = allComps.find(c => c.id === r.owner);
+                              const ownerLib = ownerComp ? library.find(l => l.id === ownerComp.libraryRef || l.name === ownerComp.name) : null;
+                              return (
+                                <div key={i} style={{ fontSize: 12, padding: "5px 10px", background: "#F0FDF4", borderRadius: 6, border: "1px solid #BBF7D0", marginBottom: 4, fontFamily: "'JetBrains Mono',monospace" }}>
+                                  {ownerLib?.className || r.owner} ──◆ {r.attribute}: {r.target}
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
+                        {cs.relationships?.method_calls?.length > 0 && (
+                          <>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginTop: 10, marginBottom: 6 }}>Method Calls (위임 호출)</div>
+                            {cs.relationships.method_calls.map((r, i) => {
+                              const callerComp = allComps.find(c => c.id === r.caller);
+                              const callerLib = callerComp ? library.find(l => l.id === callerComp.libraryRef || l.name === callerComp.name) : null;
+                              const calleeComp = allComps.find(c => c.id === r.callee);
+                              const calleeLib = calleeComp ? library.find(l => l.id === calleeComp.libraryRef || l.name === calleeComp.name) : null;
+                              return (
+                                <div key={i} style={{ fontSize: 12, padding: "5px 10px", background: "#EFF6FF", borderRadius: 6, border: "1px solid #BFDBFE", marginBottom: 4, fontFamily: "'JetBrains Mono',monospace" }}>
+                                  {callerLib?.className || r.caller}.{r.callerMethod}() → {calleeLib?.className || r.callee}.{r.calleeMethod}()
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
+                      </Card>
+                    )}
+                  </>
+                )}
+              </>
+            );
+          })()}
+
+          {/* TAB 4: 워크플로우 시각화 */}
           {activeTab === "viz" && (
             <>
               <Card style={{ marginBottom: 14 }}>
