@@ -702,7 +702,7 @@ function HomePage({ mode, setPage, workloads, models, specs, testRuns, pending, 
 }
 
 /* ═══════════════════════════ WORKFLOW DIAGRAM ═══════════════════════════ */
-function WorkflowDiagram({ components, workflow, onNodeClick, selectedId, connectSourceId }) {
+function WorkflowDiagram({ components, workflow, onNodeClick, selectedId, connectSourceId, onEdgeDelete }) {
   if (!components || components.length === 0 || !workflow || workflow.length === 0) {
     return (
       <div style={{ padding: 40, textAlign: "center", color: "#94A3B8", fontSize: 13 }}>
@@ -785,7 +785,7 @@ function WorkflowDiagram({ components, workflow, onNodeClick, selectedId, connec
             <polygon points="0 0, 8 3, 0 6" />
           </marker>
         </defs>
-        {/* Edges — bezier curves, top to bottom */}
+        {/* Edges — bezier curves with hover highlight + click to delete */}
         {workflow.map((e, i) => {
           const from = positions[e.from];
           const to = positions[e.to];
@@ -795,10 +795,26 @@ function WorkflowDiagram({ components, workflow, onNodeClick, selectedId, connec
           const dy = (y2 - y1);
           const cy1 = y1 + dy * 0.4;
           const cy2 = y2 - dy * 0.4;
+          const d = `M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`;
+          const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
           return (
-            <path key={i}
-              d={`M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`}
-              fill="none" stroke="#94A3B8" strokeWidth={1.5} markerEnd="url(#arrowhead)" />
+            <g key={i} className="edge-group" style={{ cursor: onEdgeDelete ? "pointer" : "default" }}>
+              {/* Thick invisible hit area */}
+              <path d={d} fill="none" stroke="transparent" strokeWidth={14}
+                onClick={() => onEdgeDelete && onEdgeDelete(e)}
+                onMouseEnter={ev => { const g = ev.currentTarget.parentNode; g.querySelector(".edge-line").setAttribute("stroke", "#EF4444"); g.querySelector(".edge-del")?.setAttribute("opacity", "1"); }}
+                onMouseLeave={ev => { const g = ev.currentTarget.parentNode; g.querySelector(".edge-line").setAttribute("stroke", "#94A3B8"); g.querySelector(".edge-del")?.setAttribute("opacity", "0"); }}
+              />
+              {/* Visible line */}
+              <path className="edge-line" d={d} fill="none" stroke="#94A3B8" strokeWidth={1.5} markerEnd="url(#arrowhead)" style={{ pointerEvents: "none", transition: "stroke .15s" }} />
+              {/* Delete icon (hidden until hover) */}
+              {onEdgeDelete && (
+                <g className="edge-del" opacity="0" style={{ pointerEvents: "none", transition: "opacity .15s" }}>
+                  <circle cx={mx} cy={my} r={10} fill="#FEE2E2" stroke="#EF4444" strokeWidth={1} />
+                  <text x={mx} y={my + 4} textAnchor="middle" fontSize={12} fontWeight="bold" fill="#EF4444">×</text>
+                </g>
+              )}
+            </g>
           );
         })}
         {/* Nodes */}
@@ -1450,6 +1466,11 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                     }}
                     selectedId={selectedCompId}
                     connectSourceId={classConnectSource}
+                    onEdgeDelete={(edge) => {
+                      // edge.from = target (child), edge.to = owner (parent) in composition
+                      const idx = (cs.relationships?.composition || []).findIndex(r => r.target === edge.from && r.owner === edge.to);
+                      if (idx >= 0) removeComposition(idx);
+                    }}
                   />
                 </Card>
 
