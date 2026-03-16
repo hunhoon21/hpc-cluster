@@ -117,18 +117,18 @@ const INIT_LIBRARY = [
   },
   { id: "CL-13", name: "multi-agent", image: "registry.avatar.io/multi-agent:1.0", description: "다중 에이전트 조합", version: "1.0", created: "2025-03-01",
     className: "MultiAgentBase",
-    attributes: [{ name: "impeller_agent", type: "ImpellerAgentBase" }, { name: "diffuser_agent", type: "DiffuserAgentBase" }],
+    attributes: [],  // 컴포넌트 참조 속성은 연결 시 자동 생성
     methods: [{ name: "setup", params: "s, i", returnType: "None", isAbstract: true }, { name: "setup_agents_from_train", params: "s, i", returnType: "None", isAbstract: false }]
   },
   { id: "CL-14", name: "environment", image: "registry.avatar.io/environment:1.0", description: "시뮬레이션 환경 (MakeBlade + Mesh + RunCFX)", version: "1.0", created: "2025-03-01",
     className: "EnvironmentBase",
-    attributes: [{ name: "make_blade", type: "MakeBladeBase" }, { name: "mesh_generator", type: "MeshGeneratorBase" }, { name: "run_cfx", type: "RunCFXBase" }],
+    attributes: [],  // 컴포넌트 참조 속성은 연결 시 자동 생성
     methods: [{ name: "execute_make_blade", params: "*args, **kwargs", returnType: "None", isAbstract: false }, { name: "execute_mesh_generation", params: "*args, **kwargs", returnType: "bool", isAbstract: false }, { name: "execute_run_cfx", params: "", returnType: "None", isAbstract: false }]
   },
   { id: "CL-15", name: "train", image: "registry.avatar.io/train:1.0", description: "학습 오케스트레이터", version: "1.0", created: "2025-03-01",
     className: "TrainBase",
-    attributes: [{ name: "args", type: "Any" }, { name: "rcp_setup_component", type: "RCPSetupBase" }, { name: "multi_agent_component", type: "MultiAgentBase" }, { name: "environment_component", type: "EnvironmentBase" }],
-    methods: [{ name: "apply_rcp_setup", params: "s, sr, i", returnType: "None", isAbstract: false }, { name: "apply_multi_agent", params: "s, i", returnType: "None", isAbstract: false }, { name: "execute_environment_run", params: "", returnType: "None", isAbstract: false }, { name: "run", params: "", returnType: "None", isAbstract: true }]
+    attributes: [{ name: "args", type: "Any" }],  // 값 속성만. 컴포넌트 참조는 연결 시 자동 생성
+    methods: [{ name: "run", params: "", returnType: "None", isAbstract: true }]  // 위임 메서드는 연결 시 자동 생성
   },
 ];
 
@@ -1248,36 +1248,36 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
 
               let code = "from abc import ABC, abstractmethod\nfrom typing import Any, Optional\n\n\nclass ComponentBase(ABC):\n    \"\"\"Common base type for all workflow components.\"\"\"\n    pass\n";
 
+              // Build composition lookup: owner -> [{ attribute, targetClassName }]
+              const compositionByOwner = {};
+              (cs.relationships?.composition || []).forEach(r => {
+                if (!compositionByOwner[r.owner]) compositionByOwner[r.owner] = [];
+                const tgtComp = allComps.find(c => c.id === r.target);
+                compositionByOwner[r.owner].push({ attribute: r.attribute, targetClassName: tgtComp?.className || r.target });
+              });
+
               sortedComps.forEach(comp => {
                 const cls = comp.className;
-                const attrs = comp.attributes || [];
+                const valueAttrs = comp.attributes || [];
+                const connAttrs = (compositionByOwner[comp.id] || []).map(r => ({ name: r.attribute, type: `Optional[${r.targetClassName}]` }));
+                const allAttrs = [...valueAttrs, ...connAttrs];
                 const methods = comp.methods || [];
                 const desc = comp.name || cls;
 
                 code += `\n\nclass ${cls}(ComponentBase):\n    \"\"\"${desc}\"\"\"\n\n`;
 
-                const initParams = attrs.map(a => `${a.name}: ${a.type} = None`).join(", ");
-                code += `    def __init__(self${initParams ? ", " + initParams : ""}) -> None:\n`;
-                if (attrs.length === 0) {
+                const initParts = [];
+                valueAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type}`); });
+                connAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type} = None`); });
+                code += `    def __init__(self${initParts.length ? ", " + initParts.join(", ") : ""}) -> None:\n`;
+                if (allAttrs.length === 0) {
                   code += `        pass\n`;
                 } else {
-                  attrs.forEach(a => { code += `        self.${a.name}: ${a.type} = ${a.name}\n`; });
+                  allAttrs.forEach(a => { code += `        self.${a.name} = ${a.name}\n`; });
                 }
 
-                const ownerCalls = methodCallsByOwner[comp.id] || [];
                 methods.forEach(m => {
-                  const delegateCall = ownerCalls.find(mc => mc.callerMethod === m.name);
-                  if (delegateCall) {
-                    const calleeComp = allComps.find(c => c.id === delegateCall.callee);
-                    const calleeClassName = calleeComp?.className || delegateCall.callee;
-                    const compRelation = (cs.relationships?.composition || []).find(r => r.owner === comp.id && r.target === delegateCall.callee);
-                    const attrName = compRelation?.attribute || delegateCall.callee;
-                    code += `\n    def ${m.name}(self, *args, **kwargs):\n`;
-                    code += `        \"\"\"Delegate: ${cls} -> ${calleeClassName}\"\"\"\n`;
-                    code += `        if self.${attrName} is None:\n`;
-                    code += `            raise ValueError('${attrName} is not set.')\n`;
-                    code += `        self.${attrName}.${delegateCall.calleeMethod}(*args, **kwargs)\n`;
-                  } else if (m.isAbstract) {
+                  if (m.isAbstract) {
                     code += `\n    @abstractmethod\n`;
                     code += `    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n`;
                     code += `        pass\n`;
@@ -1285,6 +1285,19 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                     code += `\n    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n`;
                     code += `        pass\n`;
                   }
+                });
+
+                const ownerCalls = methodCallsByOwner[comp.id] || [];
+                ownerCalls.forEach(mc => {
+                  const calleeComp = allComps.find(c => c.id === mc.callee);
+                  const calleeClassName = calleeComp?.className || mc.callee;
+                  const compRelation = (cs.relationships?.composition || []).find(r => r.owner === comp.id && r.target === mc.callee);
+                  const attrName = compRelation?.attribute || mc.callee;
+                  code += `\n    def ${mc.callerMethod}(self, *args, **kwargs):\n`;
+                  code += `        \"\"\"Arrow: ${cls} -> ${calleeClassName}\"\"\"\n`;
+                  code += `        if self.${attrName} is None:\n`;
+                  code += `            raise ValueError('${attrName} is not set.')\n`;
+                  code += `        self.${attrName}.${mc.calleeMethod}(*args, **kwargs)\n`;
                 });
               });
 
@@ -1708,36 +1721,36 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
 
               let code = "from abc import ABC, abstractmethod\nfrom typing import Any, Optional\n\n\nclass ComponentBase(ABC):\n    \"\"\"Common base type for all workflow components.\"\"\"\n    pass\n";
 
+              // Build composition lookup: owner -> [{ attribute, targetClassName }]
+              const compositionByOwner = {};
+              (cs.relationships?.composition || []).forEach(r => {
+                if (!compositionByOwner[r.owner]) compositionByOwner[r.owner] = [];
+                const tgtComp = allComps.find(c => c.id === r.target);
+                compositionByOwner[r.owner].push({ attribute: r.attribute, targetClassName: tgtComp?.className || r.target });
+              });
+
               sortedComps.forEach(comp => {
                 const cls = comp.className;
-                const attrs = comp.attributes || [];
+                const valueAttrs = comp.attributes || [];
+                const connAttrs = (compositionByOwner[comp.id] || []).map(r => ({ name: r.attribute, type: `Optional[${r.targetClassName}]` }));
+                const allAttrs = [...valueAttrs, ...connAttrs];
                 const methods = comp.methods || [];
                 const desc = comp.name || cls;
 
                 code += `\n\nclass ${cls}(ComponentBase):\n    \"\"\"${desc}\"\"\"\n\n`;
 
-                const initParams = attrs.map(a => `${a.name}: ${a.type} = None`).join(", ");
-                code += `    def __init__(self${initParams ? ", " + initParams : ""}) -> None:\n`;
-                if (attrs.length === 0) {
+                const initParts = [];
+                valueAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type}`); });
+                connAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type} = None`); });
+                code += `    def __init__(self${initParts.length ? ", " + initParts.join(", ") : ""}) -> None:\n`;
+                if (allAttrs.length === 0) {
                   code += `        pass\n`;
                 } else {
-                  attrs.forEach(a => { code += `        self.${a.name}: ${a.type} = ${a.name}\n`; });
+                  allAttrs.forEach(a => { code += `        self.${a.name} = ${a.name}\n`; });
                 }
 
-                const ownerCalls = methodCallsByOwner[comp.id] || [];
                 methods.forEach(m => {
-                  const delegateCall = ownerCalls.find(mc => mc.callerMethod === m.name);
-                  if (delegateCall) {
-                    const calleeComp = allComps.find(c => c.id === delegateCall.callee);
-                    const calleeClassName = calleeComp?.className || delegateCall.callee;
-                    const compRelation = (cs.relationships?.composition || []).find(r => r.owner === comp.id && r.target === delegateCall.callee);
-                    const attrName = compRelation?.attribute || delegateCall.callee;
-                    code += `\n    def ${m.name}(self, *args, **kwargs):\n`;
-                    code += `        \"\"\"Delegate: ${cls} -> ${calleeClassName}\"\"\"\n`;
-                    code += `        if self.${attrName} is None:\n`;
-                    code += `            raise ValueError('${attrName} is not set.')\n`;
-                    code += `        self.${attrName}.${delegateCall.calleeMethod}(*args, **kwargs)\n`;
-                  } else if (m.isAbstract) {
+                  if (m.isAbstract) {
                     code += `\n    @abstractmethod\n`;
                     code += `    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n`;
                     code += `        pass\n`;
@@ -1745,6 +1758,19 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                     code += `\n    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n`;
                     code += `        pass\n`;
                   }
+                });
+
+                const ownerCalls = methodCallsByOwner[comp.id] || [];
+                ownerCalls.forEach(mc => {
+                  const calleeComp = allComps.find(c => c.id === mc.callee);
+                  const calleeClassName = calleeComp?.className || mc.callee;
+                  const compRelation = (cs.relationships?.composition || []).find(r => r.owner === comp.id && r.target === mc.callee);
+                  const attrName = compRelation?.attribute || mc.callee;
+                  code += `\n    def ${mc.callerMethod}(self, *args, **kwargs):\n`;
+                  code += `        \"\"\"Arrow: ${cls} -> ${calleeClassName}\"\"\"\n`;
+                  code += `        if self.${attrName} is None:\n`;
+                  code += `            raise ValueError('${attrName} is not set.')\n`;
+                  code += `        self.${attrName}.${mc.calleeMethod}(*args, **kwargs)\n`;
                 });
               });
 
