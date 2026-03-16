@@ -1609,6 +1609,10 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                 {classConnectPopup && (() => {
                   const srcComp = allComps.find(c => c.id === classConnectPopup.sourceId);
                   const tgtComp = allComps.find(c => c.id === classConnectPopup.targetId);
+                  const srcMethods = srcComp?.methods || [];
+                  // Also include callerMethods from existing method_calls for this source
+                  const existingCallerMethods = (cs.relationships?.method_calls || []).filter(mc => mc.caller === srcComp?.id).map(mc => mc.callerMethod);
+                  const allSrcMethodNames = [...new Set([...srcMethods.map(m => m.name), ...existingCallerMethods])];
                   const targetMethods = tgtComp?.methods || [];
                   return (
                     <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.3)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90 }} onClick={() => { setClassConnectPopup(null); setClassConnectSource(null); }}>
@@ -1632,17 +1636,32 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                             <button onClick={() => setClassConnectMethodEntries([...classConnectMethodEntries, { callerMethod: "", calleeMethod: "" }])} style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>+ 추가</button>
                           </div>
                           {classConnectMethodEntries.map((entry, i) => (
-                            <div key={i} style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 4 }}>
-                              <input value={entry.callerMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, callerMethod: e.target.value } : en))} placeholder="소스 메서드 (새로 생성)" style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
-                              {targetMethods.length > 0 ? (
-                                <select value={entry.calleeMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, calleeMethod: e.target.value } : en))} style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box", background: "#fff" }}>
-                                  <option value="">대상 메서드 선택...</option>
-                                  {targetMethods.map((m, mi) => <option key={mi} value={m.name}>{m.name}</option>)}
-                                </select>
-                              ) : (
-                                <input value={entry.calleeMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, calleeMethod: e.target.value } : en))} placeholder="대상 메서드명" style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
-                              )}
-                              <button onClick={() => setClassConnectMethodEntries(classConnectMethodEntries.filter((_, j) => j !== i))} style={{ padding: "2px 4px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 12 }}>×</button>
+                            <div key={i} style={{ marginBottom: 6, padding: 8, background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
+                              <div style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 4 }}>
+                                <span style={{ fontSize: 10, color: "#64748B", width: 60, flexShrink: 0 }}>소스 메서드</span>
+                                {allSrcMethodNames.length > 0 ? (
+                                  <select value={allSrcMethodNames.includes(entry.callerMethod) ? entry.callerMethod : "__custom__"} onChange={e => { const v = e.target.value; setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, callerMethod: v === "__custom__" ? "" : v } : en)); }} style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box", background: "#fff" }}>
+                                    <option value="">선택...</option>
+                                    {allSrcMethodNames.map((name, mi) => <option key={mi} value={name}>{name}</option>)}
+                                    <option value="__custom__">직접 입력...</option>
+                                  </select>
+                                ) : null}
+                                {(allSrcMethodNames.length === 0 || (!allSrcMethodNames.includes(entry.callerMethod) && entry.callerMethod !== "")) && (
+                                  <input value={entry.callerMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, callerMethod: e.target.value } : en))} placeholder="메서드명 입력" style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                                )}
+                                <button onClick={() => setClassConnectMethodEntries(classConnectMethodEntries.filter((_, j) => j !== i))} style={{ padding: "2px 4px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 12 }}>×</button>
+                              </div>
+                              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                <span style={{ fontSize: 10, color: "#64748B", width: 60, flexShrink: 0 }}>대상 메서드</span>
+                                {targetMethods.length > 0 ? (
+                                  <select value={entry.calleeMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, calleeMethod: e.target.value } : en))} style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box", background: "#fff" }}>
+                                    <option value="">선택...</option>
+                                    {targetMethods.map((m, mi) => <option key={mi} value={m.name}>{m.name}{m.isAbstract ? " [abstract]" : ""}</option>)}
+                                  </select>
+                                ) : (
+                                  <input value={entry.calleeMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, calleeMethod: e.target.value } : en))} placeholder="메서드명 입력" style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
