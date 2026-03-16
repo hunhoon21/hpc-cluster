@@ -103,6 +103,8 @@ const INIT_SPECS = [
           { caller: "C-RCP-03", callerMethod: "execute_make_blade", callee: "C-RCP-21", calleeMethod: "make_blade" },
           { caller: "C-RCP-03", callerMethod: "execute_mesh_generation", callee: "C-RCP-22", calleeMethod: "generate_mesh" },
           { caller: "C-RCP-03", callerMethod: "execute_run_cfx", callee: "C-RCP-23", calleeMethod: "run" },
+          { caller: "C-RCP-02", callerMethod: "setup", callee: "C-RCP-11", calleeMethod: "impeller_agent_setup" },
+          { caller: "C-RCP-02", callerMethod: "setup", callee: "C-RCP-12", calleeMethod: "diffuser_agent_setup" },
         ]
       }
     }
@@ -135,7 +137,7 @@ const INIT_LIBRARY = [
   { id: "CL-13", name: "multi-agent", image: "registry.avatar.io/multi-agent:1.0", description: "다중 에이전트 조합", version: "1.0", created: "2025-03-01",
     className: "MultiAgentBase",
     attributes: [],  // 컴포넌트 참조 속성은 연결 시 자동 생성
-    methods: [{ name: "setup", params: "s, i", returnType: "None", isAbstract: true }, { name: "setup_agents_from_train", params: "s, i", returnType: "None", isAbstract: false }]
+    methods: [{ name: "setup_agents_from_train", params: "s, i", returnType: "None", isAbstract: false }]  // setup()은 method_call 연결에서 자동 생성 (template method)
   },
   { id: "CL-16", name: "make-blade", image: "registry.avatar.io/make-blade:1.0", description: "블레이드 형상 생성기", version: "1.0", created: "2025-03-01",
     className: "MakeBladeBase",
@@ -1350,17 +1352,27 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                   }
                 });
 
+                // Group method_calls by callerMethod (template method pattern: 1 method → N calls)
                 const ownerCalls = methodCallsByOwner[comp.id] || [];
+                const grouped = {};
                 ownerCalls.forEach(mc => {
-                  const calleeComp = allComps.find(c => c.id === mc.callee);
-                  const calleeClassName = calleeComp?.className || mc.callee;
-                  const compRelation = (cs.relationships?.composition || []).find(r => r.owner === comp.id && r.target === mc.callee);
-                  const attrName = compRelation?.attribute || mc.callee;
-                  code += `\n    def ${mc.callerMethod}(self, *args, **kwargs):\n`;
-                  code += `        \"\"\"Arrow: ${cls} -> ${calleeClassName}\"\"\"\n`;
-                  code += `        if self.${attrName} is None:\n`;
-                  code += `            raise ValueError('${attrName} is not set.')\n`;
-                  code += `        self.${attrName}.${mc.calleeMethod}(*args, **kwargs)\n`;
+                  if (!grouped[mc.callerMethod]) grouped[mc.callerMethod] = [];
+                  grouped[mc.callerMethod].push(mc);
+                });
+                Object.entries(grouped).forEach(([callerMethod, calls]) => {
+                  const targets = calls.map(mc => {
+                    const calleeComp = allComps.find(c => c.id === mc.callee);
+                    const compRelation = (cs.relationships?.composition || []).find(r => r.owner === comp.id && r.target === mc.callee);
+                    return { attrName: compRelation?.attribute || mc.callee, calleeMethod: mc.calleeMethod, calleeClass: calleeComp?.className || mc.callee };
+                  });
+                  const targetNames = targets.map(t => t.calleeClass).join(", ");
+                  code += `\n    def ${callerMethod}(self, *args, **kwargs):\n`;
+                  code += `        \"\"\"Arrow: ${cls} -> ${targetNames}\"\"\"\n`;
+                  targets.forEach(t => {
+                    code += `        if self.${t.attrName} is None:\n`;
+                    code += `            raise ValueError('${t.attrName} is not set.')\n`;
+                    code += `        self.${t.attrName}.${t.calleeMethod}(*args, **kwargs)\n`;
+                  });
                 });
               });
 
@@ -1756,17 +1768,27 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                   }
                 });
 
+                // Group method_calls by callerMethod (template method pattern: 1 method → N calls)
                 const ownerCalls = methodCallsByOwner[comp.id] || [];
+                const grouped = {};
                 ownerCalls.forEach(mc => {
-                  const calleeComp = allComps.find(c => c.id === mc.callee);
-                  const calleeClassName = calleeComp?.className || mc.callee;
-                  const compRelation = (cs.relationships?.composition || []).find(r => r.owner === comp.id && r.target === mc.callee);
-                  const attrName = compRelation?.attribute || mc.callee;
-                  code += `\n    def ${mc.callerMethod}(self, *args, **kwargs):\n`;
-                  code += `        \"\"\"Arrow: ${cls} -> ${calleeClassName}\"\"\"\n`;
-                  code += `        if self.${attrName} is None:\n`;
-                  code += `            raise ValueError('${attrName} is not set.')\n`;
-                  code += `        self.${attrName}.${mc.calleeMethod}(*args, **kwargs)\n`;
+                  if (!grouped[mc.callerMethod]) grouped[mc.callerMethod] = [];
+                  grouped[mc.callerMethod].push(mc);
+                });
+                Object.entries(grouped).forEach(([callerMethod, calls]) => {
+                  const targets = calls.map(mc => {
+                    const calleeComp = allComps.find(c => c.id === mc.callee);
+                    const compRelation = (cs.relationships?.composition || []).find(r => r.owner === comp.id && r.target === mc.callee);
+                    return { attrName: compRelation?.attribute || mc.callee, calleeMethod: mc.calleeMethod, calleeClass: calleeComp?.className || mc.callee };
+                  });
+                  const targetNames = targets.map(t => t.calleeClass).join(", ");
+                  code += `\n    def ${callerMethod}(self, *args, **kwargs):\n`;
+                  code += `        \"\"\"Arrow: ${cls} -> ${targetNames}\"\"\"\n`;
+                  targets.forEach(t => {
+                    code += `        if self.${t.attrName} is None:\n`;
+                    code += `            raise ValueError('${t.attrName} is not set.')\n`;
+                    code += `        self.${t.attrName}.${t.calleeMethod}(*args, **kwargs)\n`;
+                  });
                 });
               });
 
