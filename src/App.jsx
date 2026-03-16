@@ -760,40 +760,45 @@ function WorkflowDiagram({ components, workflow, onNodeClick, selectedId, connec
 
   // Position nodes — top-to-bottom layout (rank = row, idx = column)
   const positions = {};
-  const colSpacing = 180;
-  const rowSpacing = 90;
+  const nodeW = 130;
+  const nodeH = 52;
+  const colSpacing = nodeW + 24;
+  const rowSpacing = nodeH + 40;
   Object.keys(rankGroups).forEach(r => {
     const group = rankGroups[r];
-    const groupWidth = group.length * colSpacing;
-    const startX = (Math.max(maxNodesInRank * colSpacing, 400) - groupWidth) / 2;
+    const groupWidth = group.length * colSpacing - 24;
+    const totalWidth = Math.max(maxNodesInRank * colSpacing - 24, 300);
+    const startX = (totalWidth - groupWidth) / 2;
     group.forEach((c, idx) => {
-      positions[c.id] = { x: startX + idx * colSpacing + 30, y: parseInt(r) * rowSpacing + 30 };
+      positions[c.id] = { x: startX + idx * colSpacing + 20, y: parseInt(r) * rowSpacing + 20 };
     });
   });
 
-  const nodeW = 150;
-  const nodeH = 56;
-  const svgW = Math.max(maxNodesInRank * colSpacing + 60, 400);
-  const svgH = Math.max((maxRank + 1) * rowSpacing + 60, 150);
+  const svgW = Math.max(maxNodesInRank * colSpacing + 40, 400);
+  const svgH = Math.max((maxRank + 1) * rowSpacing + 20, 150);
 
   return (
     <div style={{ overflowX: "auto" }}>
       <svg width={svgW} height={svgH} style={{ display: "block", margin: "0 auto" }}>
         <defs>
-          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto" fill="#94A3B8">
-            <polygon points="0 0, 10 3.5, 0 7" />
+          <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto" fill="#94A3B8">
+            <polygon points="0 0, 8 3, 0 6" />
           </marker>
         </defs>
-        {/* Edges — top to bottom */}
+        {/* Edges — bezier curves, top to bottom */}
         {workflow.map((e, i) => {
           const from = positions[e.from];
           const to = positions[e.to];
           if (!from || !to) return null;
+          const x1 = from.x + nodeW / 2, y1 = from.y + nodeH;
+          const x2 = to.x + nodeW / 2, y2 = to.y;
+          const dy = (y2 - y1);
+          const cy1 = y1 + dy * 0.4;
+          const cy2 = y2 - dy * 0.4;
           return (
-            <line key={i}
-              x1={from.x + nodeW / 2} y1={from.y + nodeH}
-              x2={to.x + nodeW / 2} y2={to.y}
-              stroke="#94A3B8" strokeWidth={1.5} markerEnd="url(#arrowhead)" />
+            <path key={i}
+              d={`M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`}
+              fill="none" stroke="#94A3B8" strokeWidth={1.5} markerEnd="url(#arrowhead)" />
           );
         })}
         {/* Nodes */}
@@ -847,7 +852,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
   const [showConnList, setShowConnList] = useState(true);
   const [classConnectSource, setClassConnectSource] = useState(null);
   const [classConnectPopup, setClassConnectPopup] = useState(null); // { sourceId, targetId }
-  const [classConnectAttrName, setClassConnectAttrName] = useState("");
+  // classConnectAttrName removed — auto-generated from target name
   const [classConnectMethodEntries, setClassConnectMethodEntries] = useState([]); // [{ callerMethod, calleeMethod }]
   const [basePyModal, setBasePyModal] = useState(null); // null or { code: string }
 
@@ -1207,18 +1212,15 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
               if (!classConnectSource) return;
               if (classConnectSource === "__WAITING__") { setClassConnectSource(comp.id); return; }
               if (classConnectSource === comp.id) { setClassConnectSource(null); return; }
-              const tgt = allComps.find(c => c.id === comp.id);
-              const defaultAttrName = (tgt?.className || tgt?.name || "target").replace(/Base$/, "").replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "") + "_component";
               setClassConnectPopup({ sourceId: classConnectSource, targetId: comp.id });
-              setClassConnectAttrName(defaultAttrName);
-              setClassConnectMethodEntries([]);
+              setClassConnectMethodEntries([{ callerMethod: "", calleeMethod: "" }]);
             };
 
             const confirmClassConnection = () => {
               const src = allComps.find(c => c.id === classConnectPopup.sourceId);
               const tgt = allComps.find(c => c.id === classConnectPopup.targetId);
               if (!src || !tgt) return;
-              const attrName = classConnectAttrName || (tgt.className || tgt.name).replace(/Base$/, "").replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "") + "_component";
+              const attrName = (tgt.name || "target").replace(/-/g, "_");
               const newCs = { ...cs, relationships: { composition: [...(cs.relationships?.composition || [])], method_calls: [...(cs.relationships?.method_calls || [])] } };
               // Always add composition
               newCs.relationships.composition.push({ owner: src.id, attribute: attrName, target: tgt.id });
@@ -1440,11 +1442,8 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                       if (classConnectSource === "__WAITING__") {
                         setClassConnectSource(compId);
                       } else if (classConnectSource && classConnectSource !== compId) {
-                        const tgt = allComps.find(c => c.id === compId);
-                        const defaultAttrName = (tgt?.className || tgt?.name || "target").replace(/Base$/, "").replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "") + "_component";
                         setClassConnectPopup({ sourceId: classConnectSource, targetId: compId });
-                        setClassConnectAttrName(defaultAttrName);
-                        setClassConnectMethodEntries([]);
+                        setClassConnectMethodEntries([{ callerMethod: "", calleeMethod: "" }]);
                       } else {
                         setSelectedCompId(selectedCompId === compId ? null : compId);
                       }
@@ -1580,27 +1579,28 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                   const targetMethods = tgtComp?.methods || [];
                   return (
                     <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.3)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90 }} onClick={() => { setClassConnectPopup(null); setClassConnectSource(null); }}>
-                      <div style={{ background: "#fff", borderRadius: 14, padding: 24, width: 440, boxShadow: "0 24px 60px rgba(0,0,0,.12)" }} onClick={e => e.stopPropagation()}>
-                        <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700 }}>컴포넌트 연결</h3>
-                        <div style={{ fontSize: 12, color: "#64748B", marginBottom: 14 }}>
-                          {srcComp?.className || srcComp?.name || "?"} → {tgtComp?.className || tgtComp?.name || "?"}
+                      <div style={{ background: "#fff", borderRadius: 14, padding: 24, width: 480, boxShadow: "0 24px 60px rgba(0,0,0,.12)" }} onClick={e => e.stopPropagation()}>
+                        <h3 style={{ margin: "0 0 6px", fontSize: 16, fontWeight: 700 }}>컴포넌트 연결</h3>
+                        <div style={{ fontSize: 13, color: "#334155", marginBottom: 14, fontFamily: "'JetBrains Mono',monospace" }}>
+                          <span style={{ fontWeight: 700 }}>{srcComp?.className || srcComp?.name}</span>
+                          <span style={{ color: "#94A3B8", margin: "0 8px" }}>→</span>
+                          <span style={{ fontWeight: 700 }}>{tgtComp?.className || tgtComp?.name}</span>
                         </div>
 
-                        {/* Composition attribute name */}
-                        <div style={{ marginBottom: 16 }}>
-                          <label style={{ fontSize: 11, fontWeight: 500, color: "#64748B" }}>속성명 (자동 생성)</label>
-                          <input value={classConnectAttrName} onChange={e => setClassConnectAttrName(e.target.value)} placeholder="target_component" style={{ display: "block", width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", marginTop: 4, boxSizing: "border-box" }} />
+                        {/* Auto-generated composition info */}
+                        <div style={{ padding: "8px 12px", background: "#F0FDF4", borderRadius: 8, border: "1px solid #BBF7D0", marginBottom: 16, fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: "#166534" }}>
+                          self.{(tgtComp?.name || "target").replace(/-/g, "_")}: {tgtComp?.className || tgtComp?.name} — 자동 생성
                         </div>
 
-                        {/* Method calls (optional, can add multiple) */}
+                        {/* Method connections */}
                         <div style={{ marginBottom: 16 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>메서드 연결 (선택)</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>메서드 연결</span>
                             <button onClick={() => setClassConnectMethodEntries([...classConnectMethodEntries, { callerMethod: "", calleeMethod: "" }])} style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>+ 추가</button>
                           </div>
                           {classConnectMethodEntries.map((entry, i) => (
                             <div key={i} style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 4 }}>
-                              <input value={entry.callerMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, callerMethod: e.target.value } : en))} placeholder="위임 메서드명" style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                              <input value={entry.callerMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, callerMethod: e.target.value } : en))} placeholder="소스 메서드 (새로 생성)" style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
                               {targetMethods.length > 0 ? (
                                 <select value={entry.calleeMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, calleeMethod: e.target.value } : en))} style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box", background: "#fff" }}>
                                   <option value="">대상 메서드 선택...</option>
@@ -1613,6 +1613,16 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                             </div>
                           ))}
                         </div>
+
+                        {/* Code preview */}
+                        {classConnectMethodEntries.some(e => e.callerMethod && e.calleeMethod) && (
+                          <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 4 }}>자동 생성 미리보기</div>
+                            <pre style={{ background: "#0F172A", color: "#E2E8F0", padding: 12, borderRadius: 8, fontSize: 11, fontFamily: "'JetBrains Mono',monospace", lineHeight: 1.6, margin: 0, overflow: "auto" }}>{classConnectMethodEntries.filter(e => e.callerMethod && e.calleeMethod).map(e =>
+`def ${e.callerMethod}(self, *args, **kwargs):
+    self.${(tgtComp?.name || "target").replace(/-/g, "_")}.${e.calleeMethod}(*args, **kwargs)`).join("\n\n")}</pre>
+                          </div>
+                        )}
 
                         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                           <Btn onClick={() => { setClassConnectPopup(null); setClassConnectSource(null); }}>취소</Btn>
