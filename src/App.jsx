@@ -758,37 +758,41 @@ function WorkflowDiagram({ components, workflow }) {
   let maxNodesInRank = 0;
   Object.values(rankGroups).forEach(g => { if (g.length > maxNodesInRank) maxNodesInRank = g.length; });
 
-  // Position nodes
+  // Position nodes — top-to-bottom layout (rank = row, idx = column)
   const positions = {};
+  const colSpacing = 180;
+  const rowSpacing = 90;
   Object.keys(rankGroups).forEach(r => {
-    rankGroups[r].forEach((c, idx) => {
-      positions[c.id] = { x: parseInt(r) * 200 + 30, y: idx * 80 + 30 };
+    const group = rankGroups[r];
+    const groupWidth = group.length * colSpacing;
+    const startX = (Math.max(maxNodesInRank * colSpacing, 400) - groupWidth) / 2;
+    group.forEach((c, idx) => {
+      positions[c.id] = { x: startX + idx * colSpacing + 30, y: parseInt(r) * rowSpacing + 30 };
     });
   });
 
-  const svgW = Math.max((maxRank + 1) * 200 + 60, 400);
-  const svgH = Math.max(maxNodesInRank * 80 + 60, 150);
-
-  const nodeW = 140;
+  const nodeW = 150;
   const nodeH = 56;
+  const svgW = Math.max(maxNodesInRank * colSpacing + 60, 400);
+  const svgH = Math.max((maxRank + 1) * rowSpacing + 60, 150);
 
   return (
     <div style={{ overflowX: "auto" }}>
-      <svg width={svgW} height={svgH} style={{ display: "block" }}>
+      <svg width={svgW} height={svgH} style={{ display: "block", margin: "0 auto" }}>
         <defs>
           <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto" fill="#94A3B8">
             <polygon points="0 0, 10 3.5, 0 7" />
           </marker>
         </defs>
-        {/* Edges */}
+        {/* Edges — top to bottom */}
         {workflow.map((e, i) => {
           const from = positions[e.from];
           const to = positions[e.to];
           if (!from || !to) return null;
           return (
             <line key={i}
-              x1={from.x + nodeW} y1={from.y + nodeH / 2}
-              x2={to.x} y2={to.y + nodeH / 2}
+              x1={from.x + nodeW / 2} y1={from.y + nodeH}
+              x2={to.x + nodeW / 2} y2={to.y}
               stroke="#94A3B8" strokeWidth={1.5} markerEnd="url(#arrowhead)" />
           );
         })}
@@ -810,7 +814,7 @@ function WorkflowDiagram({ components, workflow }) {
                 {res}
               </text>
             </g>
-          );
+);
         })}
       </svg>
     </div>
