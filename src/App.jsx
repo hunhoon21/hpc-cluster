@@ -1598,12 +1598,25 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                       {classConnectType === "method_call" && (
                         <div style={{ marginBottom: 16 }}>
                           <div style={{ marginBottom: 8 }}>
-                            <label style={{ fontSize: 11, fontWeight: 500, color: "#64748B" }}>호출자 메서드 (caller)</label>
+                            <label style={{ fontSize: 11, fontWeight: 500, color: "#64748B" }}>위임 메서드명 (새로 생성)</label>
                             <input value={classConnectMethodCaller} onChange={e => setClassConnectMethodCaller(e.target.value)} placeholder="caller_method_name" style={{ display: "block", width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", marginTop: 4, boxSizing: "border-box" }} />
                           </div>
                           <div>
-                            <label style={{ fontSize: 11, fontWeight: 500, color: "#64748B" }}>피호출자 메서드 (callee)</label>
-                            <input value={classConnectMethodCallee} onChange={e => setClassConnectMethodCallee(e.target.value)} placeholder="callee_method_name" style={{ display: "block", width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", marginTop: 4, boxSizing: "border-box" }} />
+                            <label style={{ fontSize: 11, fontWeight: 500, color: "#64748B" }}>호출 대상 메서드 (callee)</label>
+                            {(() => {
+                              const tgtComp = allComps.find(c => c.id === classConnectPopup.targetId);
+                              const tgtMethods = tgtComp?.methods || [];
+                              return tgtMethods.length > 0 ? (
+                                <select value={classConnectMethodCallee} onChange={e => setClassConnectMethodCallee(e.target.value)} style={{ display: "block", width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", marginTop: 4, boxSizing: "border-box", background: "#fff" }}>
+                                  <option value="">메서드 선택...</option>
+                                  {tgtMethods.map((m, i) => (
+                                    <option key={i} value={m.name}>{m.name}({m.params || ""}) {m.isAbstract ? "[abstract]" : ""}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input value={classConnectMethodCallee} onChange={e => setClassConnectMethodCallee(e.target.value)} placeholder="callee_method_name" style={{ display: "block", width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "'JetBrains Mono',monospace", outline: "none", marginTop: 4, boxSizing: "border-box" }} />
+                              );
+                            })()}
                           </div>
                         </div>
                       )}
@@ -1939,13 +1952,13 @@ function TestRunPage({ specs, testRuns, runTest, setPage }) {
 /* ═══════════════════════ COMPONENT LIBRARY PAGE ═══════════════════════ */
 function ComponentLibraryPage({ library, setLibrary, flash }) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", image: "", description: "", version: "1.0" });
+  const [form, setForm] = useState({ name: "", image: "", description: "", version: "1.0", className: "", attributes: [], methods: [] });
 
   const addComponent = () => {
     if (!form.name || !form.image) { flash("이름과 이미지를 입력하세요."); return; }
     const newComp = { id: "CL-" + String(library.length + 1).padStart(2, "0"), ...form, created: now().split(" ")[0] };
     setLibrary(prev => [...prev, newComp]);
-    setForm({ name: "", image: "", description: "", version: "1.0" });
+    setForm({ name: "", image: "", description: "", version: "1.0", className: "", attributes: [], methods: [] });
     setShowForm(false);
     flash("✓ 컴포넌트가 라이브러리에 등록되었습니다.");
   };
@@ -1968,21 +1981,64 @@ function ComponentLibraryPage({ library, setLibrary, flash }) {
               <InputField label="설명" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="컴포넌트 설명" />
               <InputField label="버전" value={form.version} onChange={e => setForm(f => ({ ...f, version: e.target.value }))} />
             </div>
+            {/* className */}
+            <div style={{ marginBottom: 12 }}>
+              <InputField label="클래스명 (className)" value={form.className} onChange={e => setForm(f => ({ ...f, className: e.target.value }))} placeholder="MyComponentBase" mono />
+            </div>
+
+            {/* Attributes */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>값 속성 (Attributes)</label>
+                <button onClick={() => setForm(f => ({ ...f, attributes: [...f.attributes, { name: "", type: "Any" }] }))} style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>+ 추가</button>
+              </div>
+              {form.attributes.map((a, i) => (
+                <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                  <input value={a.name} onChange={e => setForm(f => ({ ...f, attributes: f.attributes.map((at, j) => j === i ? { ...at, name: e.target.value } : at) }))} placeholder="name" style={{ flex: 1, padding: "5px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                  <input value={a.type} onChange={e => setForm(f => ({ ...f, attributes: f.attributes.map((at, j) => j === i ? { ...at, type: e.target.value } : at) }))} placeholder="type" style={{ width: 80, padding: "5px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", color: "#6366F1", boxSizing: "border-box" }} />
+                  <button onClick={() => setForm(f => ({ ...f, attributes: f.attributes.filter((_, j) => j !== i) }))} style={{ padding: "2px 4px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 13 }}>×</button>
+                </div>
+              ))}
+            </div>
+
+            {/* Methods */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>메서드 (Methods)</label>
+                <button onClick={() => setForm(f => ({ ...f, methods: [...f.methods, { name: "", params: "", returnType: "None", isAbstract: true }] }))} style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>+ 추가</button>
+              </div>
+              {form.methods.map((m, i) => (
+                <div key={i} style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 4, padding: "4px 6px", background: "#fff", borderRadius: 6, border: "1px solid #E2E8F0" }}>
+                  <input value={m.name} onChange={e => setForm(f => ({ ...f, methods: f.methods.map((mt, j) => j === i ? { ...mt, name: e.target.value } : mt) }))} placeholder="method_name" style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                  <input value={m.params} onChange={e => setForm(f => ({ ...f, methods: f.methods.map((mt, j) => j === i ? { ...mt, params: e.target.value } : mt) }))} placeholder="params" style={{ width: 80, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 10, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                  <span style={{ fontSize: 10, color: "#94A3B8" }}>→</span>
+                  <input value={m.returnType} onChange={e => setForm(f => ({ ...f, methods: f.methods.map((mt, j) => j === i ? { ...mt, returnType: e.target.value } : mt) }))} placeholder="return" style={{ width: 50, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 10, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                  <label style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 10, color: m.isAbstract ? "#92400E" : "#94A3B8", cursor: "pointer", whiteSpace: "nowrap" }}>
+                    <input type="checkbox" checked={!!m.isAbstract} onChange={e => setForm(f => ({ ...f, methods: f.methods.map((mt, j) => j === i ? { ...mt, isAbstract: e.target.checked } : mt) }))} style={{ width: 12, height: 12 }} />
+                    abs
+                  </label>
+                  <button onClick={() => setForm(f => ({ ...f, methods: f.methods.filter((_, j) => j !== i) }))} style={{ padding: "2px 4px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 13 }}>×</button>
+                </div>
+              ))}
+            </div>
+
             <Btn v="success" icon="check" onClick={addComponent}>등록</Btn>
           </div>
         )}
 
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr><TH>ID</TH><TH>이름</TH><TH>이미지</TH><TH>설명</TH><TH a="center">버전</TH><TH a="center">등록일</TH></tr></thead>
+          <thead><tr><TH>ID</TH><TH>이름</TH><TH>클래스명</TH><TH>이미지</TH><TH a="center">속성</TH><TH a="center">메서드</TH><TH>설명</TH><TH a="center">버전</TH></tr></thead>
           <tbody>
             {library.map(c => (
               <tr key={c.id}>
                 <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#7E22CE" }}>{c.id}</span></TD>
                 <TD b>{c.name}</TD>
+                <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#6366F1" }}>{c.className || "—"}</span></TD>
                 <TD><span style={{ fontSize: 12, color: "#64748B", fontFamily: "'JetBrains Mono',monospace" }}>{c.image}</span></TD>
+                <TD a="center">{c.attributes?.length || 0}</TD>
+                <TD a="center">{c.methods?.length || 0}</TD>
                 <TD>{c.description}</TD>
                 <TD a="center">{c.version}</TD>
-                <TD a="center">{c.created}</TD>
               </tr>
             ))}
           </tbody>
