@@ -1366,7 +1366,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
 
             return (
               <>
-                {/* ── Task selection ── */}
+                {/* ── Task selection (full width above split) ── */}
                 <Card style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Task 선택</div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1378,165 +1378,226 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                   </div>
                 </Card>
 
-                {/* ── Library buttons + Add ── */}
-                <Card style={{ marginBottom: 14 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700 }}>컴포넌트 ({curTask.components.length})</div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <Btn sz="sm" onClick={addComponentManual}>직접 추가</Btn>
-                    </div>
-                  </div>
-                  {library && library.length > 0 && (
-                    <div style={{ marginBottom: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {library.map(lc => (
-                        <button key={lc.id} onClick={() => addFromLibrary(lc)} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #BFDBFE", background: "#EFF6FF", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#1E40AF", fontFamily: "inherit" }}>
-                          + {lc.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                {/* ── Split view container ── */}
+                <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
 
-                  {/* Connect mode banner */}
-                  {classConnectSource && (
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#6366F1", marginBottom: 10, padding: "8px 12px", background: "#EEF2FF", borderRadius: 8, border: "1px solid #C7D2FE", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <span>◆ 소스: <strong>{allComps.find(c => c.id === classConnectSource)?.className || allComps.find(c => c.id === classConnectSource)?.name || "?"}</strong> — 타겟 카드를 클릭하세요</span>
-                      <button onClick={() => setClassConnectSource(null)} style={{ padding: "2px 10px", borderRadius: 4, border: "1px solid #C7D2FE", background: "#E0E7FF", cursor: "pointer", fontSize: 11, color: "#6366F1", fontFamily: "inherit", fontWeight: 600 }}>취소</button>
-                    </div>
-                  )}
+                  {/* ── LEFT PANEL (45%) - scrollable ── */}
+                  <div style={{ flex: "0 0 45%", maxWidth: "45%" }}>
 
-                  {curTask.components.length === 0 ? (
-                    <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 16 }}>컴포넌트를 추가하세요. 라이브러리에서 선택하거나 직접 추가할 수 있습니다.</p>
-                  ) : (
-                    <>
-                      {/* ── Unified component card grid ── */}
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12, marginBottom: 14 }}>
-                        {curTask.components.map((c, i) => {
-                          const isSource = classConnectSource === c.id;
-                          const isTarget = classConnectSource && classConnectSource !== c.id;
-                          const isExpanded = expandedComp === c.id;
-                          const compCount = (cs.relationships?.composition || []).filter(r => r.owner === c.id || r.target === c.id).length;
-                          return (
-                            <div key={c.id} onClick={() => { if (isTarget) handleClassNodeClick(c); }} style={{
-                              padding: 14, borderRadius: 12, cursor: isTarget ? "pointer" : "default",
-                              border: `2px solid ${isSource ? "#6366F1" : isTarget ? "#A5B4FC" : isExpanded ? "#0F172A" : "#E2E8F0"}`,
-                              background: isSource ? "#EEF2FF" : isTarget ? "#F5F3FF" : "#FAFBFC",
-                              transition: "all .15s",
-                              boxShadow: isSource ? "0 0 0 3px rgba(99,102,241,.15)" : isTarget ? "0 0 0 2px rgba(165,180,252,.2)" : "none"
-                            }}>
-                              {/* Header */}
-                              <div style={{ fontSize: 13, fontWeight: 700 }}>{c.name || "unnamed"}</div>
-                              {c.className && <div style={{ fontSize: 11, color: "#6366F1", fontFamily: "'JetBrains Mono',monospace" }}>{c.className}</div>}
-                              <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>{c.gpuType} x{c.gpuCount} · {c.mem}</div>
-
-                              {/* Summary badges */}
-                              <div style={{ display: "flex", gap: 4, marginTop: 6, marginBottom: 8, flexWrap: "wrap" }}>
-                                {(c.attributes || []).length > 0 && <span style={badgeStyle}>attrs: {c.attributes.length}</span>}
-                                {(c.methods || []).length > 0 && <span style={badgeStyle}>methods: {c.methods.length}</span>}
-                                {compCount > 0 && <span style={connBadgeStyle}>연결: {compCount}</span>}
-                              </div>
-
-                              {/* Buttons */}
-                              <div style={{ display: "flex", gap: 4, borderTop: "1px solid #E2E8F0", paddingTop: 8 }}>
-                                <button title="연결" onClick={(e) => { e.stopPropagation(); setClassConnectSource(isSource ? null : c.id); }} style={{
-                                  flex: 1, padding: "5px 0", borderRadius: 6, cursor: "pointer", fontSize: 11, fontFamily: "inherit", fontWeight: 600,
-                                  border: `1px solid ${isSource ? "#6366F1" : "#E2E8F0"}`,
-                                  background: isSource ? "#6366F1" : "#fff",
-                                  color: isSource ? "#fff" : "#6366F1"
-                                }}>연결</button>
-                                <button title="편집" onClick={(e) => { e.stopPropagation(); setExpandedComp(isExpanded ? null : c.id); }} style={{
-                                  flex: 1, padding: "5px 0", borderRadius: 6, cursor: "pointer", fontSize: 11, fontFamily: "inherit", fontWeight: 600,
-                                  border: `1px solid ${isExpanded ? "#0F172A" : "#E2E8F0"}`,
-                                  background: isExpanded ? "#0F172A" : "#fff",
-                                  color: isExpanded ? "#fff" : "#64748B"
-                                }}>편집</button>
-                                <button title="삭제" onClick={(e) => { e.stopPropagation(); deleteComponent(i); if (expandedComp === c.id) setExpandedComp(null); }} style={{
-                                  padding: "5px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: "inherit",
-                                  border: "1px solid #FEE2E2", background: "#FFF5F5", color: "#EF4444"
-                                }}>×</button>
-                              </div>
-                            </div>
-                          );
-                        })}
+                    {/* ── Library buttons + Add ── */}
+                    <Card style={{ marginBottom: 14 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>컴포넌트 ({curTask.components.length})</div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <Btn sz="sm" onClick={addComponentManual}>직접 추가</Btn>
+                        </div>
                       </div>
+                      {library && library.length > 0 && (
+                        <div style={{ marginBottom: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {library.map(lc => (
+                            <button key={lc.id} onClick={() => addFromLibrary(lc)} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #BFDBFE", background: "#EFF6FF", cursor: "pointer", fontSize: 11, fontWeight: 500, color: "#1E40AF", fontFamily: "inherit" }}>
+                              + {lc.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
 
-                      {/* ── Expanded edit panel ── */}
-                      {expandedComp && (() => {
-                        const compIdx = curTask.components.findIndex(c => c.id === expandedComp);
-                        if (compIdx < 0) return null;
-                        const c = curTask.components[compIdx];
-                        const attrs = c.attributes || [];
-                        const methods = c.methods || [];
-                        return (
-                          <div style={{ padding: 16, border: "2px solid #0F172A", borderRadius: 12, marginBottom: 14, background: "#FAFBFC" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                              <div style={{ fontSize: 13, fontWeight: 700 }}>{c.name || "unnamed"} — 상세 편집</div>
-                              <button onClick={() => setExpandedComp(null)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={15} c="#94A3B8" /></button>
-                            </div>
+                      {/* Connect mode banner */}
+                      {classConnectSource && (
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#6366F1", marginBottom: 10, padding: "8px 12px", background: "#EEF2FF", borderRadius: 8, border: "1px solid #C7D2FE", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <span>◆ 소스: <strong>{allComps.find(c => c.id === classConnectSource)?.className || allComps.find(c => c.id === classConnectSource)?.name || "?"}</strong> — 타겟 카드를 클릭하세요</span>
+                          <button onClick={() => setClassConnectSource(null)} style={{ padding: "2px 10px", borderRadius: 4, border: "1px solid #C7D2FE", background: "#E0E7FF", cursor: "pointer", fontSize: 11, color: "#6366F1", fontFamily: "inherit", fontWeight: 600 }}>취소</button>
+                        </div>
+                      )}
 
-                            {/* 기본 정보 */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                              <InputField label="이름" value={c.name} onChange={e => setComp(selTaskIdx, compIdx, "name", e.target.value)} placeholder="component-name" />
-                              <InputField label="클래스명" value={c.className || ""} onChange={e => setComp(selTaskIdx, compIdx, "className", e.target.value)} placeholder="ClassName" mono />
-                            </div>
+                      {curTask.components.length === 0 ? (
+                        <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 16 }}>컴포넌트를 추가하세요. 라이브러리에서 선택하거나 직접 추가할 수 있습니다.</p>
+                      ) : (
+                        <>
+                          {/* ── Component cards - single column list ── */}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14 }}>
+                            {curTask.components.map((c, i) => {
+                              const isSource = classConnectSource === c.id;
+                              const isTarget = classConnectSource && classConnectSource !== c.id;
+                              const isExpanded = expandedComp === c.id;
+                              const compCount = (cs.relationships?.composition || []).filter(r => r.owner === c.id || r.target === c.id).length;
+                              return (
+                                <div key={c.id} onClick={() => { if (isTarget) handleClassNodeClick(c); }} style={{
+                                  padding: 14, borderRadius: 12, cursor: isTarget ? "pointer" : "default",
+                                  border: `2px solid ${isSource ? "#6366F1" : isTarget ? "#A5B4FC" : isExpanded ? "#0F172A" : "#E2E8F0"}`,
+                                  background: isSource ? "#EEF2FF" : isTarget ? "#F5F3FF" : "#FAFBFC",
+                                  transition: "all .15s",
+                                  boxShadow: isSource ? "0 0 0 3px rgba(99,102,241,.15)" : isTarget ? "0 0 0 2px rgba(165,180,252,.2)" : "none"
+                                }}>
+                                  {/* Header */}
+                                  <div style={{ fontSize: 13, fontWeight: 700 }}>{c.name || "unnamed"}</div>
+                                  {c.className && <div style={{ fontSize: 11, color: "#6366F1", fontFamily: "'JetBrains Mono',monospace" }}>{c.className}</div>}
+                                  <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>{c.gpuType} x{c.gpuCount} · {c.mem}</div>
 
-                            {/* 인프라 */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                              <InputField label="Docker 이미지" value={c.image} onChange={e => setComp(selTaskIdx, compIdx, "image", e.target.value)} placeholder="registry.avatar.io/my-image" mono />
-                              <InputField label="태그" value={c.tag} onChange={e => setComp(selTaskIdx, compIdx, "tag", e.target.value)} placeholder="latest" mono />
-                            </div>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
-                              <InputField label="GPU 유형" value={c.gpuType} onChange={e => setComp(selTaskIdx, compIdx, "gpuType", e.target.value)} placeholder="A100" />
-                              <InputField label="GPU 수" value={c.gpuCount} onChange={e => setComp(selTaskIdx, compIdx, "gpuCount", e.target.value)} placeholder="2" />
-                              <InputField label="메모리" value={c.mem} onChange={e => setComp(selTaskIdx, compIdx, "mem", e.target.value)} placeholder="64GB" />
-                            </div>
-
-                            {/* Attributes */}
-                            <div style={{ marginBottom: 10 }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                <span style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>Attributes ({attrs.length})</span>
-                                <button onClick={() => addAttribute(selTaskIdx, compIdx)} style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>+ 추가</button>
-                              </div>
-                              {attrs.map((a, ai) => (
-                                <div key={ai} style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 3 }}>
-                                  <input value={a.name} onChange={e => setAttr(selTaskIdx, compIdx, ai, "name", e.target.value)} placeholder="name" style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
-                                  <input value={a.type} onChange={e => setAttr(selTaskIdx, compIdx, ai, "type", e.target.value)} placeholder="type" style={{ width: 90, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", color: "#6366F1", boxSizing: "border-box" }} />
-                                  <button onClick={() => removeAttribute(selTaskIdx, compIdx, ai)} style={{ padding: "2px 4px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 12 }}>×</button>
-                                </div>
-                              ))}
-                            </div>
-
-                            {/* Methods */}
-                            <div>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                <span style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>Methods ({methods.length})</span>
-                                <button onClick={() => addMethod(selTaskIdx, compIdx)} style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>+ 추가</button>
-                              </div>
-                              {methods.map((m, mi) => (
-                                <div key={mi} style={{ padding: 6, background: "#fff", borderRadius: 6, border: "1px solid #E2E8F0", marginBottom: 4 }}>
-                                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                                    <input value={m.name} onChange={e => setMethod(selTaskIdx, compIdx, mi, "name", e.target.value)} placeholder="method_name" style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
-                                    <button onClick={() => removeMethod(selTaskIdx, compIdx, mi)} style={{ padding: "2px 4px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 12 }}>×</button>
+                                  {/* Summary badges */}
+                                  <div style={{ display: "flex", gap: 4, marginTop: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                                    {(c.attributes || []).length > 0 && <span style={badgeStyle}>attrs: {c.attributes.length}</span>}
+                                    {(c.methods || []).length > 0 && <span style={badgeStyle}>methods: {c.methods.length}</span>}
+                                    {compCount > 0 && <span style={connBadgeStyle}>연결: {compCount}</span>}
                                   </div>
-                                  <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 3 }}>
-                                    <input value={m.params} onChange={e => setMethod(selTaskIdx, compIdx, mi, "params", e.target.value)} placeholder="params" style={{ flex: 1, padding: "3px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 10, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
-                                    <span style={{ fontSize: 10, color: "#94A3B8" }}>→</span>
-                                    <input value={m.returnType} onChange={e => setMethod(selTaskIdx, compIdx, mi, "returnType", e.target.value)} placeholder="return" style={{ width: 60, padding: "3px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 10, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
-                                    <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: m.isAbstract ? "#92400E" : "#94A3B8", cursor: "pointer", whiteSpace: "nowrap" }}>
-                                      <input type="checkbox" checked={!!m.isAbstract} onChange={e => setMethod(selTaskIdx, compIdx, mi, "isAbstract", e.target.checked)} style={{ width: 12, height: 12 }} />
-                                      abstract
-                                    </label>
+
+                                  {/* Buttons */}
+                                  <div style={{ display: "flex", gap: 4, borderTop: "1px solid #E2E8F0", paddingTop: 8 }}>
+                                    <button title="연결" onClick={(e) => { e.stopPropagation(); setClassConnectSource(isSource ? null : c.id); }} style={{
+                                      flex: 1, padding: "5px 0", borderRadius: 6, cursor: "pointer", fontSize: 11, fontFamily: "inherit", fontWeight: 600,
+                                      border: `1px solid ${isSource ? "#6366F1" : "#E2E8F0"}`,
+                                      background: isSource ? "#6366F1" : "#fff",
+                                      color: isSource ? "#fff" : "#6366F1"
+                                    }}>연결</button>
+                                    <button title="편집" onClick={(e) => { e.stopPropagation(); setExpandedComp(isExpanded ? null : c.id); }} style={{
+                                      flex: 1, padding: "5px 0", borderRadius: 6, cursor: "pointer", fontSize: 11, fontFamily: "inherit", fontWeight: 600,
+                                      border: `1px solid ${isExpanded ? "#0F172A" : "#E2E8F0"}`,
+                                      background: isExpanded ? "#0F172A" : "#fff",
+                                      color: isExpanded ? "#fff" : "#64748B"
+                                    }}>편집</button>
+                                    <button title="삭제" onClick={(e) => { e.stopPropagation(); deleteComponent(i); if (expandedComp === c.id) setExpandedComp(null); }} style={{
+                                      padding: "5px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: "inherit",
+                                      border: "1px solid #FEE2E2", background: "#FFF5F5", color: "#EF4444"
+                                    }}>×</button>
                                   </div>
                                 </div>
-                              ))}
-                            </div>
+                              );
+                            })}
                           </div>
-                        );
-                      })()}
-                    </>
-                  )}
-                </Card>
 
-                {/* ── Connection popup ── */}
+                          {/* ── Expanded edit panel ── */}
+                          {expandedComp && (() => {
+                            const compIdx = curTask.components.findIndex(c => c.id === expandedComp);
+                            if (compIdx < 0) return null;
+                            const c = curTask.components[compIdx];
+                            const attrs = c.attributes || [];
+                            const methods = c.methods || [];
+                            return (
+                              <div style={{ padding: 16, border: "2px solid #0F172A", borderRadius: 12, marginBottom: 14, background: "#FAFBFC" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 700 }}>{c.name || "unnamed"} — 상세 편집</div>
+                                  <button onClick={() => setExpandedComp(null)} style={{ padding: 4, background: "none", border: "none", cursor: "pointer" }}><I n="close" s={15} c="#94A3B8" /></button>
+                                </div>
+
+                                {/* 기본 정보 */}
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                                  <InputField label="이름" value={c.name} onChange={e => setComp(selTaskIdx, compIdx, "name", e.target.value)} placeholder="component-name" />
+                                  <InputField label="클래스명" value={c.className || ""} onChange={e => setComp(selTaskIdx, compIdx, "className", e.target.value)} placeholder="ClassName" mono />
+                                </div>
+
+                                {/* 인프라 */}
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                                  <InputField label="Docker 이미지" value={c.image} onChange={e => setComp(selTaskIdx, compIdx, "image", e.target.value)} placeholder="registry.avatar.io/my-image" mono />
+                                  <InputField label="태그" value={c.tag} onChange={e => setComp(selTaskIdx, compIdx, "tag", e.target.value)} placeholder="latest" mono />
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                                  <InputField label="GPU 유형" value={c.gpuType} onChange={e => setComp(selTaskIdx, compIdx, "gpuType", e.target.value)} placeholder="A100" />
+                                  <InputField label="GPU 수" value={c.gpuCount} onChange={e => setComp(selTaskIdx, compIdx, "gpuCount", e.target.value)} placeholder="2" />
+                                  <InputField label="메모리" value={c.mem} onChange={e => setComp(selTaskIdx, compIdx, "mem", e.target.value)} placeholder="64GB" />
+                                </div>
+
+                                {/* Attributes */}
+                                <div style={{ marginBottom: 10 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>Attributes ({attrs.length})</span>
+                                    <button onClick={() => addAttribute(selTaskIdx, compIdx)} style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>+ 추가</button>
+                                  </div>
+                                  {attrs.map((a, ai) => (
+                                    <div key={ai} style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 3 }}>
+                                      <input value={a.name} onChange={e => setAttr(selTaskIdx, compIdx, ai, "name", e.target.value)} placeholder="name" style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                                      <input value={a.type} onChange={e => setAttr(selTaskIdx, compIdx, ai, "type", e.target.value)} placeholder="type" style={{ width: 90, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", color: "#6366F1", boxSizing: "border-box" }} />
+                                      <button onClick={() => removeAttribute(selTaskIdx, compIdx, ai)} style={{ padding: "2px 4px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 12 }}>×</button>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {/* Methods */}
+                                <div>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>Methods ({methods.length})</span>
+                                    <button onClick={() => addMethod(selTaskIdx, compIdx)} style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>+ 추가</button>
+                                  </div>
+                                  {methods.map((m, mi) => (
+                                    <div key={mi} style={{ padding: 6, background: "#fff", borderRadius: 6, border: "1px solid #E2E8F0", marginBottom: 4 }}>
+                                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                        <input value={m.name} onChange={e => setMethod(selTaskIdx, compIdx, mi, "name", e.target.value)} placeholder="method_name" style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                                        <button onClick={() => removeMethod(selTaskIdx, compIdx, mi)} style={{ padding: "2px 4px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 12 }}>×</button>
+                                      </div>
+                                      <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 3 }}>
+                                        <input value={m.params} onChange={e => setMethod(selTaskIdx, compIdx, mi, "params", e.target.value)} placeholder="params" style={{ flex: 1, padding: "3px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 10, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                                        <span style={{ fontSize: 10, color: "#94A3B8" }}>→</span>
+                                        <input value={m.returnType} onChange={e => setMethod(selTaskIdx, compIdx, mi, "returnType", e.target.value)} placeholder="return" style={{ width: 60, padding: "3px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 10, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                                        <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: m.isAbstract ? "#92400E" : "#94A3B8", cursor: "pointer", whiteSpace: "nowrap" }}>
+                                          <input type="checkbox" checked={!!m.isAbstract} onChange={e => setMethod(selTaskIdx, compIdx, mi, "isAbstract", e.target.checked)} style={{ width: 12, height: 12 }} />
+                                          abstract
+                                        </label>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </>
+                      )}
+                    </Card>
+
+                    {/* ── Connection list ── */}
+                    {(cs.relationships?.composition?.length > 0 || cs.relationships?.method_calls?.length > 0) && (
+                      <Card style={{ marginBottom: 14 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>컴포넌트 관계</div>
+                        {cs.relationships?.composition?.length > 0 && (
+                          <>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6 }}>Composition (소유)</div>
+                            {cs.relationships.composition.map((r, i) => {
+                              const ownerComp = allComps.find(c => c.id === r.owner);
+                              const targetComp = allComps.find(c => c.id === r.target);
+                              return (
+                                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, padding: "5px 10px", background: "#F0FDF4", borderRadius: 6, border: "1px solid #BBF7D0", marginBottom: 4, fontFamily: "'JetBrains Mono',monospace" }}>
+                                  <span>{ownerComp?.className || r.owner} ──◆ {r.attribute}: {targetComp?.className || r.target}</span>
+                                  <button onClick={() => removeComposition(i)} style={{ padding: "2px 6px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 14 }}>×</button>
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
+                        {cs.relationships?.method_calls?.length > 0 && (
+                          <>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginTop: 10, marginBottom: 6 }}>Method Calls (위임 호출)</div>
+                            {cs.relationships.method_calls.map((r, i) => {
+                              const callerComp = allComps.find(c => c.id === r.caller);
+                              const calleeComp = allComps.find(c => c.id === r.callee);
+                              return (
+                                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, padding: "5px 10px", background: "#EFF6FF", borderRadius: 6, border: "1px solid #BFDBFE", marginBottom: 4, fontFamily: "'JetBrains Mono',monospace" }}>
+                                  <span>{callerComp?.className || r.caller}.{r.callerMethod}() → {calleeComp?.className || r.callee}.{r.calleeMethod}()</span>
+                                  <button onClick={() => removeMethodCall(i)} style={{ padding: "2px 6px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 14 }}>×</button>
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
+                      </Card>
+                    )}
+
+                    {/* ── Bottom buttons ── */}
+                    <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                      <Btn v="primary" sz="lg" onClick={generateBasePy}>Base Class 생성</Btn>
+                      <Btn v="default" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
+                    </div>
+
+                  </div>
+
+                  {/* ── RIGHT PANEL (55%) - sticky diagram ── */}
+                  <div style={{ flex: "0 0 55%", maxWidth: "55%", position: "sticky", top: 76, alignSelf: "flex-start" }}>
+                    <Card>
+                      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>워크플로우 (자동 생성)</div>
+                      <WorkflowDiagram components={curTask.components} workflow={effectiveWorkflow} />
+                    </Card>
+                  </div>
+
+                </div>
+
+                {/* ── Connection popup (fixed overlay) ── */}
                 {classConnectPopup && (() => {
                   const srcComp = allComps.find(c => c.id === classConnectPopup.sourceId);
                   const tgtComp = allComps.find(c => c.id === classConnectPopup.targetId);
@@ -1586,56 +1647,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                   );
                 })()}
 
-                {/* ── Connection list ── */}
-                {(cs.relationships?.composition?.length > 0 || cs.relationships?.method_calls?.length > 0) && (
-                  <Card style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>컴포넌트 관계</div>
-                    {cs.relationships?.composition?.length > 0 && (
-                      <>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6 }}>Composition (소유)</div>
-                        {cs.relationships.composition.map((r, i) => {
-                          const ownerComp = allComps.find(c => c.id === r.owner);
-                          const targetComp = allComps.find(c => c.id === r.target);
-                          return (
-                            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, padding: "5px 10px", background: "#F0FDF4", borderRadius: 6, border: "1px solid #BBF7D0", marginBottom: 4, fontFamily: "'JetBrains Mono',monospace" }}>
-                              <span>{ownerComp?.className || r.owner} ──◆ {r.attribute}: {targetComp?.className || r.target}</span>
-                              <button onClick={() => removeComposition(i)} style={{ padding: "2px 6px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 14 }}>×</button>
-                            </div>
-                          );
-                        })}
-                      </>
-                    )}
-                    {cs.relationships?.method_calls?.length > 0 && (
-                      <>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginTop: 10, marginBottom: 6 }}>Method Calls (위임 호출)</div>
-                        {cs.relationships.method_calls.map((r, i) => {
-                          const callerComp = allComps.find(c => c.id === r.caller);
-                          const calleeComp = allComps.find(c => c.id === r.callee);
-                          return (
-                            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, padding: "5px 10px", background: "#EFF6FF", borderRadius: 6, border: "1px solid #BFDBFE", marginBottom: 4, fontFamily: "'JetBrains Mono',monospace" }}>
-                              <span>{callerComp?.className || r.caller}.{r.callerMethod}() → {calleeComp?.className || r.callee}.{r.calleeMethod}()</span>
-                              <button onClick={() => removeMethodCall(i)} style={{ padding: "2px 6px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 14 }}>×</button>
-                            </div>
-                          );
-                        })}
-                      </>
-                    )}
-                  </Card>
-                )}
-
-                {/* ── Workflow preview (derived) ── */}
-                <Card style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 8 }}>워크플로우 미리보기 (자동 생성)</div>
-                  <WorkflowDiagram components={curTask.components} workflow={effectiveWorkflow} />
-                </Card>
-
-                {/* ── Bottom buttons ── */}
-                <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
-                  <Btn v="primary" sz="lg" onClick={generateBasePy}>Base Class 생성</Btn>
-                  <Btn v="default" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
-                </div>
-
-                {/* base.py Modal */}
+                {/* base.py Modal (fixed overlay) */}
                 {basePyModal && (
                   <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.3)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90 }} onClick={() => setBasePyModal(null)}>
                     <div style={{ background: "#fff", borderRadius: 14, padding: 24, maxWidth: 720, width: "90%", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 60px rgba(0,0,0,.12)" }} onClick={e => e.stopPropagation()}>
