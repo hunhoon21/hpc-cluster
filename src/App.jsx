@@ -65,19 +65,31 @@ const INIT_SPECS = [
       { id: "TASK-RCP-01", name: "blade-optimization", imported_from: null,
         components: [
           { id: "C-RCP-01", name: "rcp-setup", image: "registry.avatar.io/rcp-setup:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 1, libraryRef: "CL-10" },
-          { id: "C-RCP-02", name: "multi-agent", image: "registry.avatar.io/multi-agent:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 2, libraryRef: "CL-13" },
-          { id: "C-RCP-03", name: "environment", image: "registry.avatar.io/environment:1.0", tag: "1.0", gpu_type: "A100", gpu_count: 2, mem: "64GB", params: {}, order: 3, libraryRef: "CL-14" },
-          { id: "C-RCP-04", name: "train", image: "registry.avatar.io/train:1.0", tag: "1.0", gpu_type: "A100", gpu_count: 4, mem: "128GB", params: {}, order: 4, libraryRef: "CL-15" },
+          { id: "C-RCP-11", name: "impeller-agent", image: "registry.avatar.io/impeller-agent:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "8GB", params: {}, order: 2, libraryRef: "CL-11" },
+          { id: "C-RCP-12", name: "diffuser-agent", image: "registry.avatar.io/diffuser-agent:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "8GB", params: {}, order: 3, libraryRef: "CL-12" },
+          { id: "C-RCP-02", name: "multi-agent", image: "registry.avatar.io/multi-agent:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 4, libraryRef: "CL-13" },
+          { id: "C-RCP-21", name: "make-blade", image: "registry.avatar.io/make-blade:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "8GB", params: {}, order: 5, libraryRef: "CL-16" },
+          { id: "C-RCP-22", name: "mesh-generator", image: "registry.avatar.io/mesh-generator:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "8GB", params: {}, order: 6, libraryRef: "CL-17" },
+          { id: "C-RCP-23", name: "run-cfx", image: "registry.avatar.io/run-cfx:1.0", tag: "1.0", gpu_type: "A100", gpu_count: 2, mem: "32GB", params: {}, order: 7, libraryRef: "CL-18" },
+          { id: "C-RCP-03", name: "environment", image: "registry.avatar.io/environment:1.0", tag: "1.0", gpu_type: "A100", gpu_count: 2, mem: "64GB", params: {}, order: 8, libraryRef: "CL-14" },
+          { id: "C-RCP-04", name: "train", image: "registry.avatar.io/train:1.0", tag: "1.0", gpu_type: "A100", gpu_count: 4, mem: "128GB", params: {}, order: 9, libraryRef: "CL-15" },
         ],
-        workflow: [{ from: "C-RCP-01", to: "C-RCP-04" }, { from: "C-RCP-02", to: "C-RCP-04" }, { from: "C-RCP-03", to: "C-RCP-04" }]
+        workflow: [
+          { from: "C-RCP-11", to: "C-RCP-02" }, { from: "C-RCP-12", to: "C-RCP-02" },
+          { from: "C-RCP-21", to: "C-RCP-03" }, { from: "C-RCP-22", to: "C-RCP-03" }, { from: "C-RCP-23", to: "C-RCP-03" },
+          { from: "C-RCP-01", to: "C-RCP-04" }, { from: "C-RCP-02", to: "C-RCP-04" }, { from: "C-RCP-03", to: "C-RCP-04" },
+        ]
       }
     ],
     imported_apps: [],
     classSpec: {
       relationships: {
         composition: [
-          { owner: "C-RCP-02", attribute: "impeller_agent", target: "ImpellerAgentBase" },
-          { owner: "C-RCP-02", attribute: "diffuser_agent", target: "DiffuserAgentBase" },
+          { owner: "C-RCP-02", attribute: "impeller_agent", target: "C-RCP-11" },
+          { owner: "C-RCP-02", attribute: "diffuser_agent", target: "C-RCP-12" },
+          { owner: "C-RCP-03", attribute: "make_blade", target: "C-RCP-21" },
+          { owner: "C-RCP-03", attribute: "mesh_generator", target: "C-RCP-22" },
+          { owner: "C-RCP-03", attribute: "run_cfx", target: "C-RCP-23" },
           { owner: "C-RCP-04", attribute: "rcp_setup_component", target: "C-RCP-01" },
           { owner: "C-RCP-04", attribute: "multi_agent_component", target: "C-RCP-02" },
           { owner: "C-RCP-04", attribute: "environment_component", target: "C-RCP-03" },
@@ -86,6 +98,9 @@ const INIT_SPECS = [
           { caller: "C-RCP-04", callerMethod: "apply_rcp_setup", callee: "C-RCP-01", calleeMethod: "provide_state_to_train" },
           { caller: "C-RCP-04", callerMethod: "apply_multi_agent", callee: "C-RCP-02", calleeMethod: "setup_agents_from_train" },
           { caller: "C-RCP-04", callerMethod: "execute_environment_run", callee: "C-RCP-03", calleeMethod: "execute_run_cfx" },
+          { caller: "C-RCP-03", callerMethod: "execute_make_blade", callee: "C-RCP-21", calleeMethod: "make_blade" },
+          { caller: "C-RCP-03", callerMethod: "execute_mesh_generation", callee: "C-RCP-22", calleeMethod: "generate_mesh" },
+          { caller: "C-RCP-03", callerMethod: "execute_run_cfx", callee: "C-RCP-23", calleeMethod: "run" },
         ]
       }
     }
@@ -120,10 +135,25 @@ const INIT_LIBRARY = [
     attributes: [],  // 컴포넌트 참조 속성은 연결 시 자동 생성
     methods: [{ name: "setup", params: "s, i", returnType: "None", isAbstract: true }, { name: "setup_agents_from_train", params: "s, i", returnType: "None", isAbstract: false }]
   },
+  { id: "CL-16", name: "make-blade", image: "registry.avatar.io/make-blade:1.0", description: "블레이드 형상 생성기", version: "1.0", created: "2025-03-01",
+    className: "MakeBladeBase",
+    attributes: [{ name: "component_name", type: "str" }],
+    methods: [{ name: "make_blade", params: "cfg_file, blade_count, output_file_path, destination_dir, blade_geom_data, write_index", returnType: "None", isAbstract: true }]
+  },
+  { id: "CL-17", name: "mesh-generator", image: "registry.avatar.io/mesh-generator:1.0", description: "CFD 메시 생성기", version: "1.0", created: "2025-03-01",
+    className: "MeshGeneratorBase",
+    attributes: [{ name: "component_name", type: "str" }],
+    methods: [{ name: "generate_mesh", params: "mesh_script_path, blade_set_count, run_index, node_index, slot_index", returnType: "bool", isAbstract: true }]
+  },
+  { id: "CL-18", name: "run-cfx", image: "registry.avatar.io/run-cfx:1.0", description: "CFX 시뮬레이터 실행", version: "1.0", created: "2025-03-01",
+    className: "RunCFXBase",
+    attributes: [{ name: "run_index", type: "Optional[str]" }, { name: "node_idx", type: "Optional[int]" }, { name: "slot_idx", type: "Optional[int]" }, { name: "cores_per_task", type: "Optional[Any]" }],
+    methods: [{ name: "run", params: "", returnType: "None", isAbstract: true }]
+  },
   { id: "CL-14", name: "environment", image: "registry.avatar.io/environment:1.0", description: "시뮬레이션 환경 (MakeBlade + Mesh + RunCFX)", version: "1.0", created: "2025-03-01",
     className: "EnvironmentBase",
     attributes: [],  // 컴포넌트 참조 속성은 연결 시 자동 생성
-    methods: [{ name: "execute_make_blade", params: "*args, **kwargs", returnType: "None", isAbstract: false }, { name: "execute_mesh_generation", params: "*args, **kwargs", returnType: "bool", isAbstract: false }, { name: "execute_run_cfx", params: "", returnType: "None", isAbstract: false }]
+    methods: []  // 위임 메서드(execute_make_blade 등)는 연결 시 자동 생성
   },
   { id: "CL-15", name: "train", image: "registry.avatar.io/train:1.0", description: "학습 오케스트레이터", version: "1.0", created: "2025-03-01",
     className: "TrainBase",
