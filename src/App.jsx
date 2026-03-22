@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 /* ═══════════════════════════════════════════════════════
-   AVATAR OnE  v1.9  —  ML/RL Training Platform Demo
+   AVATAR OnE  v1.10  —  ML/RL Training Platform Demo
+
+   v1.10 Changes:
+   · 3-layer code structure: base.py (framework) + {app}_app.py (generated) + implementation
+   · Component types: component, solver, environment, train
+   · Solver pipeline for Environment internal workflow
 
    v1.9 Changes:
    · Unified component design tab (single card grid)
@@ -106,63 +111,110 @@ const INIT_SPECS = [
           { caller: "C-RCP-02", callerMethod: "setup", callee: "C-RCP-11", calleeMethod: "impeller_agent_setup" },
           { caller: "C-RCP-02", callerMethod: "setup", callee: "C-RCP-12", calleeMethod: "diffuser_agent_setup" },
         ]
+      },
+      solver_pipeline: {
+        environmentId: "C-RCP-03",
+        solvers: ["make_blade_diffuser", "make_blade_impeller", "mesh_diffuser", "mesh_impeller", "run_cfx"],
+        connections: [
+          { from: "make_blade_diffuser", to: "mesh_diffuser" },
+          { from: "make_blade_impeller", to: "mesh_impeller" },
+          { from: "mesh_diffuser", to: "run_cfx" },
+          { from: "mesh_impeller", to: "run_cfx" }
+        ],
+        entrySolvers: ["make_blade_diffuser", "make_blade_impeller"]
       }
     }
   },
 ];
 
+const FRAMEWORK_BASE_PY = `# base.py — AVATAR OnE Platform Framework
+# This file is provided by the platform and should not be modified.
+
+from abc import ABC, abstractmethod
+import multiprocessing
+from typing import Any, Dict, Optional, Sequence
+
+class ComponentBase(ABC):
+    """Common framework base type for all workflow components."""
+    pass
+
+class SolverBase(ComponentBase):
+    """Framework base for file-driven solver components.
+
+    Attributes: solver_id, keep_process_alive, poll_interval, input_artifacts, output_artifacts
+    Abstract methods: prepare_inputs(), solve()
+    Framework methods: execute(), start_runtime(), stop_runtime(), ensure_runtime()
+    """
+    ...
+
+class WorkflowEnvironmentBase(ComponentBase):
+    """Framework base for solver-graph environments.
+
+    Methods: register_solver(), connect(), set_entry_solvers(), run_environment()
+    Abstract methods: compute_reward()
+    """
+    ...
+
+class WorkflowTrainBase(ComponentBase):
+    """Framework base for training/workflow coordinators.
+
+    Abstract methods: run_workflow()
+    """
+    ...
+`;
+
 const INIT_LIBRARY = [
-  { id: "CL-01", name: "env-simulator", image: "registry.avatar.io/env-sim:1.0", description: "RL 환경 시뮬레이터", version: "1.0", created: "2025-01-15" },
-  { id: "CL-02", name: "rl-agent", image: "registry.avatar.io/rl-agent:2.0", description: "강화학습 에이전트", version: "2.0", created: "2025-01-20" },
-  { id: "CL-03", name: "reward-calculator", image: "registry.avatar.io/reward-calc:1.0", description: "보상 함수 계산기", version: "1.0", created: "2025-01-22" },
-  { id: "CL-04", name: "data-loader", image: "registry.avatar.io/data-loader:1.0", description: "데이터 로더", version: "1.0", created: "2025-01-10" },
-  { id: "CL-05", name: "preprocessor", image: "registry.avatar.io/preprocessor:2.1", description: "데이터 전처리기", version: "2.1", created: "2025-01-12" },
-  { id: "CL-06", name: "evaluator", image: "registry.avatar.io/evaluator:1.5", description: "모델 평가기", version: "1.5", created: "2025-01-18" },
+  { id: "CL-01", name: "env-simulator", image: "registry.avatar.io/env-sim:1.0", description: "RL 환경 시뮬레이터", version: "1.0", created: "2025-01-15", type: "component" },
+  { id: "CL-02", name: "rl-agent", image: "registry.avatar.io/rl-agent:2.0", description: "강화학습 에이전트", version: "2.0", created: "2025-01-20", type: "component" },
+  { id: "CL-03", name: "reward-calculator", image: "registry.avatar.io/reward-calc:1.0", description: "보상 함수 계산기", version: "1.0", created: "2025-01-22", type: "component" },
+  { id: "CL-04", name: "data-loader", image: "registry.avatar.io/data-loader:1.0", description: "데이터 로더", version: "1.0", created: "2025-01-10", type: "component" },
+  { id: "CL-05", name: "preprocessor", image: "registry.avatar.io/preprocessor:2.1", description: "데이터 전처리기", version: "2.1", created: "2025-01-12", type: "component" },
+  { id: "CL-06", name: "evaluator", image: "registry.avatar.io/evaluator:1.5", description: "모델 평가기", version: "1.5", created: "2025-01-18", type: "component" },
   // RCP 블레이드 최적화 컴포넌트
-  { id: "CL-10", name: "rcp-setup", image: "registry.avatar.io/rcp-setup:1.0", description: "RCP 블레이드 상태 초기화", version: "1.0", created: "2025-03-01",
+  { id: "CL-10", name: "rcp-setup", image: "registry.avatar.io/rcp-setup:1.0", description: "RCP 블레이드 상태 초기화", version: "1.0", created: "2025-03-01", type: "component",
     className: "RCPSetupBase",
     attributes: [{ name: "n_layer", type: "int" }, { name: "impeller_a_variation_ratio", type: "float" }, { name: "diffuser_a_variation_ratio", type: "float" }, { name: "blade_layers", type: "Any" }],
     methods: [{ name: "initialize_state_for_index", params: "s, sr, i", returnType: "None", isAbstract: true }, { name: "provide_state_to_train", params: "s, sr, i", returnType: "None", isAbstract: false }]
   },
-  { id: "CL-11", name: "impeller-agent", image: "registry.avatar.io/impeller-agent:1.0", description: "임펠러 에이전트 (상태 정규화)", version: "1.0", created: "2025-03-01",
+  { id: "CL-11", name: "impeller-agent", image: "registry.avatar.io/impeller-agent:1.0", description: "임펠러 에이전트 (상태 정규화)", version: "1.0", created: "2025-03-01", type: "component",
     className: "ImpellerAgentBase",
     attributes: [{ name: "n_layer", type: "int" }, { name: "impeller_blade_number", type: "float" }, { name: "impeller_blade_number_min", type: "int" }, { name: "impeller_blade_number_max", type: "int" }, { name: "impeller_a_variation_ratio", type: "float" }],
     methods: [{ name: "impeller_agent_setup", params: "s, i", returnType: "None", isAbstract: true }]
   },
-  { id: "CL-12", name: "diffuser-agent", image: "registry.avatar.io/diffuser-agent:1.0", description: "디퓨저 에이전트 (상태 정규화)", version: "1.0", created: "2025-03-01",
+  { id: "CL-12", name: "diffuser-agent", image: "registry.avatar.io/diffuser-agent:1.0", description: "디퓨저 에이전트 (상태 정규화)", version: "1.0", created: "2025-03-01", type: "component",
     className: "DiffuserAgentBase",
     attributes: [{ name: "n_layer", type: "int" }, { name: "diffuser_blade_number", type: "float" }, { name: "diffuser_blade_number_min", type: "int" }, { name: "diffuser_blade_number_max", type: "int" }, { name: "diffuser_a_variation_ratio", type: "float" }],
     methods: [{ name: "diffuser_agent_setup", params: "s, i", returnType: "None", isAbstract: true }]
   },
-  { id: "CL-13", name: "multi-agent", image: "registry.avatar.io/multi-agent:1.0", description: "다중 에이전트 조합", version: "1.0", created: "2025-03-01",
+  { id: "CL-13", name: "multi-agent", image: "registry.avatar.io/multi-agent:1.0", description: "다중 에이전트 조합", version: "1.0", created: "2025-03-01", type: "component",
     className: "MultiAgentBase",
     attributes: [],  // 컴포넌트 참조 속성은 연결 시 자동 생성
     methods: [{ name: "setup_agents_from_train", params: "s, i", returnType: "None", isAbstract: false }]  // setup()은 method_call 연결에서 자동 생성 (template method)
   },
-  { id: "CL-16", name: "make-blade", image: "registry.avatar.io/make-blade:1.0", description: "블레이드 형상 생성기", version: "1.0", created: "2025-03-01",
+  { id: "CL-16", name: "make-blade", image: "registry.avatar.io/make-blade:1.0", description: "블레이드 형상 생성기", version: "1.0", created: "2025-03-01", type: "solver", solverId: "make_blade",
     className: "MakeBladeBase",
     attributes: [{ name: "component_name", type: "str" }],
-    methods: [{ name: "make_blade", params: "cfg_file, blade_count, output_file_path, destination_dir, blade_geom_data, write_index", returnType: "None", isAbstract: true }]
+    methods: [{ name: "prepare_inputs", params: "action, upstream_results, context", returnType: "dict", isAbstract: true }, { name: "make_blade", params: "prepared_input, context", returnType: "None", isAbstract: true }, { name: "solve", params: "prepared_input, context", returnType: "None", isAbstract: false }]
   },
-  { id: "CL-17", name: "mesh-generator", image: "registry.avatar.io/mesh-generator:1.0", description: "CFD 메시 생성기", version: "1.0", created: "2025-03-01",
+  { id: "CL-17", name: "mesh-generator", image: "registry.avatar.io/mesh-generator:1.0", description: "CFD 메시 생성기", version: "1.0", created: "2025-03-01", type: "solver", solverId: "mesh_generator",
     className: "MeshGeneratorBase",
     attributes: [{ name: "component_name", type: "str" }],
-    methods: [{ name: "generate_mesh", params: "mesh_script_path, blade_set_count, run_index, node_index, slot_index", returnType: "bool", isAbstract: true }]
+    methods: [{ name: "prepare_inputs", params: "action, upstream_results, context", returnType: "dict", isAbstract: true }, { name: "generate_mesh", params: "prepared_input, context", returnType: "bool", isAbstract: true }, { name: "solve", params: "prepared_input, context", returnType: "None", isAbstract: false }]
   },
-  { id: "CL-18", name: "run-cfx", image: "registry.avatar.io/run-cfx:1.0", description: "CFX 시뮬레이터 실행", version: "1.0", created: "2025-03-01",
+  { id: "CL-18", name: "run-cfx", image: "registry.avatar.io/run-cfx:1.0", description: "CFX 시뮬레이터 실행", version: "1.0", created: "2025-03-01", type: "solver", solverId: "run_cfx",
     className: "RunCFXBase",
     attributes: [{ name: "run_index", type: "Optional[str]" }, { name: "node_idx", type: "Optional[int]" }, { name: "slot_idx", type: "Optional[int]" }, { name: "cores_per_task", type: "Optional[Any]" }],
-    methods: [{ name: "run", params: "", returnType: "None", isAbstract: true }]
+    methods: [{ name: "prepare_inputs", params: "action, upstream_results, context", returnType: "dict", isAbstract: true }, { name: "run_solver", params: "prepared_input, context", returnType: "None", isAbstract: true }, { name: "solve", params: "prepared_input, context", returnType: "None", isAbstract: false }]
   },
-  { id: "CL-14", name: "environment", image: "registry.avatar.io/environment:1.0", description: "시뮬레이션 환경 (MakeBlade + Mesh + RunCFX)", version: "1.0", created: "2025-03-01",
+  { id: "CL-14", name: "environment", image: "registry.avatar.io/environment:1.0", description: "시뮬레이션 환경 (MakeBlade + Mesh + RunCFX)", version: "1.0", created: "2025-03-01", type: "environment",
     className: "EnvironmentBase",
     attributes: [],  // 컴포넌트 참조 속성은 연결 시 자동 생성
     methods: []  // 위임 메서드(execute_make_blade 등)는 연결 시 자동 생성
   },
-  { id: "CL-15", name: "train", image: "registry.avatar.io/train:1.0", description: "학습 오케스트레이터", version: "1.0", created: "2025-03-01",
+  { id: "CL-15", name: "train", image: "registry.avatar.io/train:1.0", description: "학습 오케스트레이터", version: "1.0", created: "2025-03-01", type: "train",
     className: "TrainBase",
     attributes: [{ name: "args", type: "Any" }],  // 값 속성만. 컴포넌트 참조는 연결 시 자동 생성
-    methods: [{ name: "run", params: "", returnType: "None", isAbstract: true }]  // 위임 메서드는 연결 시 자동 생성
+    methods: [{ name: "run_workflow", params: "", returnType: "None", isAbstract: true }]  // 위임 메서드는 연결 시 자동 생성
   },
 ];
 
@@ -504,7 +556,7 @@ export default function App() {
             <span style={{ color: "#fff", fontSize: 14, fontWeight: 800, letterSpacing: -0.5 }}>A</span>
           </div>
           <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>AVATAR OnE</span>
-          <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", marginLeft: 2 }}>v1.9</span>
+          <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", marginLeft: 2 }}>v1.10</span>
         </div>
         <div style={{ flex: 1 }} />
         
@@ -873,6 +925,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
   // classConnectAttrName removed — auto-generated from target name
   const [classConnectMethodEntries, setClassConnectMethodEntries] = useState([]); // [{ callerMethod, calleeMethod }]
   const [basePyModal, setBasePyModal] = useState(null); // null or { code: string }
+  const [showFrameworkCode, setShowFrameworkCode] = useState(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const parseJSON = (s) => { try { return JSON.parse(s); } catch { return s || {}; } };
@@ -905,6 +958,8 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
     setTask(selTaskIdx, "components", [...t.components, {
       id: cid(), name: libComp.name, image: img, tag: tag || "latest",
       gpuType: "A100", gpuCount: "2", mem: "64GB", params: "", order: maxOrder + 1, libraryRef: libComp.id,
+      type: libComp.type || "component",
+      solverId: libComp.solverId || "",
       className: libComp.className || "",
       attributes: libComp.attributes ? libComp.attributes.map(a => ({ ...a })) : [],
       methods: libComp.methods ? libComp.methods.map(m => ({ ...m })) : []
@@ -1276,7 +1331,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
               set("classSpec", newCs);
             };
 
-            /* ── generateBasePyCode (returns string) ── */
+            /* ── generateBasePyCode (returns {app}_app.py string) ── */
             const generateBasePyCode = () => {
               const classComps = allComps.filter(c => c.className);
               if (classComps.length === 0) return null;
@@ -1312,7 +1367,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                 methodCallsByOwner[r.caller].push(r);
               });
 
-              let code = "from abc import ABC, abstractmethod\nfrom typing import Any, Optional\n\n\nclass ComponentBase(ABC):\n    \"\"\"Common base type for all workflow components.\"\"\"\n    pass\n";
+              let code = "from abc import abstractmethod\nfrom typing import Any, Dict, Optional, Sequence\nimport base as framework_base\n";
 
               const compositionByOwner = {};
               (cs.relationships?.composition || []).forEach(r => {
@@ -1321,24 +1376,56 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                 compositionByOwner[r.owner].push({ attribute: r.attribute, targetClassName: tgtComp?.className || r.target });
               });
 
+              const solverPipeline = cs.solver_pipeline || null;
+
               sortedComps.forEach(comp => {
                 const cls = comp.className;
+                const compType = comp.type || (library.find(l => l.id === comp.libraryRef)?.type) || "component";
+                let parentClass;
+                switch(compType) {
+                  case "solver": parentClass = "framework_base.SolverBase"; break;
+                  case "environment": parentClass = "framework_base.WorkflowEnvironmentBase"; break;
+                  case "train": parentClass = "framework_base.WorkflowTrainBase"; break;
+                  default: parentClass = "framework_base.ComponentBase"; break;
+                }
+
                 const valueAttrs = comp.attributes || [];
                 const connAttrs = (compositionByOwner[comp.id] || []).map(r => ({ name: r.attribute, type: `Optional[${r.targetClassName}]` }));
                 const allAttrs = [...valueAttrs, ...connAttrs];
                 const methods = comp.methods || [];
                 const desc = comp.name || cls;
 
-                code += `\n\nclass ${cls}(ComponentBase):\n    \"\"\"${desc}\"\"\"\n\n`;
+                code += `\n\nclass ${cls}(${parentClass}):\n    \"\"\"${desc}\"\"\"\n\n`;
 
-                const initParts = [];
-                valueAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type}`); });
-                connAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type} = None`); });
-                code += `    def __init__(self${initParts.length ? ", " + initParts.join(", ") : ""}) -> None:\n`;
-                if (allAttrs.length === 0) {
-                  code += `        pass\n`;
-                } else {
+                // Solver type: special __init__ with solver_id
+                if (compType === "solver") {
+                  const sid = comp.solverId || (library.find(l => l.id === comp.libraryRef)?.solverId) || "";
+                  const initParts = [];
+                  valueAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type}`); });
+                  connAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type} = None`); });
+                  code += `    def __init__(self${initParts.length ? ", " + initParts.join(", ") : ""}) -> None:\n`;
+                  code += `        super().__init__(solver_id="${sid}", keep_process_alive=True)\n`;
                   allAttrs.forEach(a => { code += `        self.${a.name} = ${a.name}\n`; });
+                } else if (compType === "train") {
+                  const initParts = [];
+                  valueAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type}`); });
+                  connAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type} = None`); });
+                  code += `    def __init__(self${initParts.length ? ", " + initParts.join(", ") : ""}) -> None:\n`;
+                  if (allAttrs.length === 0) {
+                    code += `        pass\n`;
+                  } else {
+                    allAttrs.forEach(a => { code += `        self.${a.name} = ${a.name}\n`; });
+                  }
+                } else {
+                  const initParts = [];
+                  valueAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type}`); });
+                  connAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type} = None`); });
+                  code += `    def __init__(self${initParts.length ? ", " + initParts.join(", ") : ""}) -> None:\n`;
+                  if (allAttrs.length === 0) {
+                    code += `        pass\n`;
+                  } else {
+                    allAttrs.forEach(a => { code += `        self.${a.name} = ${a.name}\n`; });
+                  }
                 }
 
                 methods.forEach(m => {
@@ -1352,7 +1439,22 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                   }
                 });
 
-                // Group method_calls by callerMethod (template method pattern: 1 method → N calls)
+                // Environment type: generate configure_solver_pipeline() if solver_pipeline present
+                if (compType === "environment" && solverPipeline && solverPipeline.environmentId === comp.id) {
+                  code += `\n    def configure_solver_pipeline(self):\n`;
+                  code += `        \"\"\"Auto-generated from solver_pipeline spec.\"\"\"\n`;
+                  (solverPipeline.solvers || []).forEach(s => {
+                    code += `        self.register_solver("${s}")\n`;
+                  });
+                  (solverPipeline.connections || []).forEach(c => {
+                    code += `        self.connect("${c.from}", "${c.to}")\n`;
+                  });
+                  if (solverPipeline.entrySolvers) {
+                    code += `        self.set_entry_solvers(${JSON.stringify(solverPipeline.entrySolvers)})\n`;
+                  }
+                }
+
+                // Group method_calls by callerMethod (template method pattern: 1 method -> N calls)
                 const ownerCalls = methodCallsByOwner[comp.id] || [];
                 const grouped = {};
                 ownerCalls.forEach(mc => {
@@ -1710,7 +1812,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
             const allComps = form.tasks.flatMap((t, ti) => t.components.map((c, ci) => ({ ...c, _taskIdx: ti, _compIdx: ci })));
             const cs = form.classSpec || { relationships: { composition: [], method_calls: [] } };
 
-            /* ── generateBasePyCode (same logic, returns string) ── */
+            /* ── generateBasePyCode (same logic as design tab, returns {app}_app.py string) ── */
             const generateBasePyCode = () => {
               const classComps = allComps.filter(c => c.className);
               if (classComps.length === 0) return null;
@@ -1746,7 +1848,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                 methodCallsByOwner[r.caller].push(r);
               });
 
-              let code = "from abc import ABC, abstractmethod\nfrom typing import Any, Optional\n\n\nclass ComponentBase(ABC):\n    \"\"\"Common base type for all workflow components.\"\"\"\n    pass\n";
+              let code = "from abc import abstractmethod\nfrom typing import Any, Dict, Optional, Sequence\nimport base as framework_base\n";
 
               // Build composition lookup: owner -> [{ attribute, targetClassName }]
               const compositionByOwner = {};
@@ -1756,24 +1858,45 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                 compositionByOwner[r.owner].push({ attribute: r.attribute, targetClassName: tgtComp?.className || r.target });
               });
 
+              const solverPipeline = cs.solver_pipeline || null;
+
               sortedComps.forEach(comp => {
                 const cls = comp.className;
+                const compType = comp.type || (library.find(l => l.id === comp.libraryRef)?.type) || "component";
+                let parentClass;
+                switch(compType) {
+                  case "solver": parentClass = "framework_base.SolverBase"; break;
+                  case "environment": parentClass = "framework_base.WorkflowEnvironmentBase"; break;
+                  case "train": parentClass = "framework_base.WorkflowTrainBase"; break;
+                  default: parentClass = "framework_base.ComponentBase"; break;
+                }
+
                 const valueAttrs = comp.attributes || [];
                 const connAttrs = (compositionByOwner[comp.id] || []).map(r => ({ name: r.attribute, type: `Optional[${r.targetClassName}]` }));
                 const allAttrs = [...valueAttrs, ...connAttrs];
                 const methods = comp.methods || [];
                 const desc = comp.name || cls;
 
-                code += `\n\nclass ${cls}(ComponentBase):\n    \"\"\"${desc}\"\"\"\n\n`;
+                code += `\n\nclass ${cls}(${parentClass}):\n    \"\"\"${desc}\"\"\"\n\n`;
 
-                const initParts = [];
-                valueAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type}`); });
-                connAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type} = None`); });
-                code += `    def __init__(self${initParts.length ? ", " + initParts.join(", ") : ""}) -> None:\n`;
-                if (allAttrs.length === 0) {
-                  code += `        pass\n`;
-                } else {
+                if (compType === "solver") {
+                  const sid = comp.solverId || (library.find(l => l.id === comp.libraryRef)?.solverId) || "";
+                  const initParts = [];
+                  valueAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type}`); });
+                  connAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type} = None`); });
+                  code += `    def __init__(self${initParts.length ? ", " + initParts.join(", ") : ""}) -> None:\n`;
+                  code += `        super().__init__(solver_id="${sid}", keep_process_alive=True)\n`;
                   allAttrs.forEach(a => { code += `        self.${a.name} = ${a.name}\n`; });
+                } else {
+                  const initParts = [];
+                  valueAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type}`); });
+                  connAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type} = None`); });
+                  code += `    def __init__(self${initParts.length ? ", " + initParts.join(", ") : ""}) -> None:\n`;
+                  if (allAttrs.length === 0) {
+                    code += `        pass\n`;
+                  } else {
+                    allAttrs.forEach(a => { code += `        self.${a.name} = ${a.name}\n`; });
+                  }
                 }
 
                 methods.forEach(m => {
@@ -1787,7 +1910,22 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                   }
                 });
 
-                // Group method_calls by callerMethod (template method pattern: 1 method → N calls)
+                // Environment type: generate configure_solver_pipeline()
+                if (compType === "environment" && solverPipeline && solverPipeline.environmentId === comp.id) {
+                  code += `\n    def configure_solver_pipeline(self):\n`;
+                  code += `        \"\"\"Auto-generated from solver_pipeline spec.\"\"\"\n`;
+                  (solverPipeline.solvers || []).forEach(s => {
+                    code += `        self.register_solver("${s}")\n`;
+                  });
+                  (solverPipeline.connections || []).forEach(c => {
+                    code += `        self.connect("${c.from}", "${c.to}")\n`;
+                  });
+                  if (solverPipeline.entrySolvers) {
+                    code += `        self.set_entry_solvers(${JSON.stringify(solverPipeline.entrySolvers)})\n`;
+                  }
+                }
+
+                // Group method_calls by callerMethod
                 const ownerCalls = methodCallsByOwner[comp.id] || [];
                 const grouped = {};
                 ownerCalls.forEach(mc => {
@@ -1814,14 +1952,16 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
               return code;
             };
 
-            const generatedBasePyCode = generateBasePyCode();
+            const generatedAppPyCode = generateBasePyCode();
+            const appFileName = (form.name || "app").replace(/[^a-zA-Z0-9]/g, "_") + "_app.py";
 
             const generateImplTemplate = () => {
               const classComps = allComps.filter(c => c.className && c.methods?.some(m => m.isAbstract));
               if (classComps.length === 0) { flash("abstract 메서드가 있는 클래스가 없습니다."); return; }
 
               const imports = classComps.map(c => c.className).join(", ");
-              let tmpl = `# ${"=".repeat(43)}\n# 구현체 코드 (아래에 작성)\n# ${"=".repeat(43)}\n\nfrom base import ${imports}\n`;
+              const appMod = (form.name || "app").replace(/[^a-zA-Z0-9]/g, "_") + "_app";
+              let tmpl = `# ${"=".repeat(43)}\n# 구현체 코드 (아래에 작성)\n# ${"=".repeat(43)}\n\nfrom ${appMod} import ${imports}\n`;
 
               classComps.forEach(c => {
                 const cls = c.className;
@@ -1837,7 +1977,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
             };
 
             const downloadPackage = () => {
-              const baseCode = generatedBasePyCode;
+              const baseCode = generatedAppPyCode;
               if (!baseCode) { flash("클래스가 정의된 컴포넌트가 없습니다."); return; }
               const combined = baseCode + "\n\n" + (form.implCode || "# 구현체 코드 없음\n");
               const blob = new Blob([combined], { type: "text/x-python" });
@@ -1845,30 +1985,44 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
               const a = document.createElement("a");
               a.href = url; a.download = (form.name || "app") + "_package.py"; a.click();
               URL.revokeObjectURL(url);
-              flash("✓ App 패키지 다운로드 완료 (base.py + 구현체)");
+              flash("✓ App 패키지 다운로드 완료 (base.py + " + appFileName + " + 구현체)");
             };
 
             return (
               <>
                 <Card style={{ marginBottom: 14 }}>
-                  {!generatedBasePyCode ? (
+                  {!generatedAppPyCode ? (
                     <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>
                       클래스가 정의된 컴포넌트가 없습니다. "컴포넌트 설계" 탭에서 className을 설정하세요.
                     </p>
                   ) : (
                     <>
-                      {/* Zone 1: Read-only base.py */}
+                      {/* Zone 1: base.py framework (read-only, collapsed by default) */}
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: 8 }}
+                          onClick={() => setShowFrameworkCode(!showFrameworkCode)}>
+                          <span style={{ fontSize: 13, fontWeight: 700 }}>base.py (플랫폼 프레임워크)</span>
+                          <span style={{ fontSize: 11, color: "#94A3B8" }}>{showFrameworkCode ? "\u25B2 접기" : "\u25BC 펼치기"} \u00B7 읽기 전용</span>
+                        </div>
+                        {showFrameworkCode && (
+                          <pre style={{ background: "#1E293B", borderRadius: 10, padding: 16, fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: "#94A3B8", margin: 0, overflow: "auto", maxHeight: 400, lineHeight: 1.6, whiteSpace: "pre" }}>
+                            {FRAMEWORK_BASE_PY}
+                          </pre>
+                        )}
+                      </div>
+
+                      {/* Zone 2: {app}_app.py (auto-generated, read-only) */}
                       <div style={{ marginBottom: 2 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700 }}>base.py (자동 생성)</span>
+                          <span style={{ fontSize: 13, fontWeight: 700 }}>{appFileName} (자동 생성)</span>
                           <span style={{ fontSize: 11, color: "#94A3B8" }}>읽기 전용</span>
                         </div>
                         <pre style={{ background: "#1E293B", borderRadius: "10px 10px 0 0", padding: 16, fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: "#94A3B8", margin: 0, overflow: "auto", maxHeight: 400, lineHeight: 1.6, whiteSpace: "pre" }}>
-                          {generatedBasePyCode}
+                          {generatedAppPyCode}
                         </pre>
                       </div>
 
-                      {/* Zone 2: Editable implementation */}
+                      {/* Zone 3: Editable implementation */}
                       <div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, marginTop: 16 }}>
                           <span style={{ fontSize: 13, fontWeight: 700 }}>구현체 코드</span>
@@ -1879,7 +2033,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                         <textarea
                           value={form.implCode || ""}
                           onChange={e => set("implCode", e.target.value)}
-                          placeholder={"# " + "=".repeat(43) + "\n# 구현체 코드 (아래에 작성)\n# " + "=".repeat(43) + "\n\n# 위 base.py의 abstract 메서드를 구현하세요.\n# '구현체 템플릿 생성' 버튼을 클릭하면 스켈레톤 코드가 자동 생성됩니다."}
+                          placeholder={"# " + "=".repeat(43) + "\n# 구현체 코드 (아래에 작성)\n# " + "=".repeat(43) + "\n\n# " + appFileName + "의 abstract 메서드를 구현하세요.\n# '구현체 템플릿 생성' 버튼을 클릭하면 스켈레톤 코드가 자동 생성됩니다."}
                           style={{
                             width: "100%", minHeight: 400, padding: "16px 14px",
                             background: "#0F172A", color: "#E2E8F0",
@@ -1976,13 +2130,13 @@ function TestRunPage({ specs, testRuns, runTest, setPage }) {
 /* ═══════════════════════ COMPONENT LIBRARY PAGE ═══════════════════════ */
 function ComponentLibraryPage({ library, setLibrary, flash }) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", image: "", description: "", version: "1.0", className: "", attributes: [], methods: [] });
+  const [form, setForm] = useState({ name: "", image: "", description: "", version: "1.0", type: "component", className: "", attributes: [], methods: [] });
 
   const addComponent = () => {
     if (!form.name || !form.image) { flash("이름과 이미지를 입력하세요."); return; }
     const newComp = { id: "CL-" + String(library.length + 1).padStart(2, "0"), ...form, created: now().split(" ")[0] };
     setLibrary(prev => [...prev, newComp]);
-    setForm({ name: "", image: "", description: "", version: "1.0", className: "", attributes: [], methods: [] });
+    setForm({ name: "", image: "", description: "", version: "1.0", type: "component", className: "", attributes: [], methods: [] });
     setShowForm(false);
     flash("✓ 컴포넌트가 라이브러리에 등록되었습니다.");
   };
@@ -2004,6 +2158,18 @@ function ComponentLibraryPage({ library, setLibrary, flash }) {
               <InputField label="이미지 경로" value={form.image} onChange={e => setForm(f => ({ ...f, image: e.target.value }))} placeholder="registry.avatar.io/name:tag" />
               <InputField label="설명" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="컴포넌트 설명" />
               <InputField label="버전" value={form.version} onChange={e => setForm(f => ({ ...f, version: e.target.value }))} />
+            </div>
+            {/* type */}
+            <div style={{ marginBottom: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 5 }}>컴포넌트 타입</label>
+                <select value={form.type || "component"} onChange={e => setForm(f => ({...f, type: e.target.value}))} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", boxSizing: "border-box", background: "#fff", color: "#0F172A" }}>
+                  <option value="component">Component</option>
+                  <option value="solver">Solver</option>
+                  <option value="environment">Environment</option>
+                  <option value="train">Train</option>
+                </select>
+              </div>
             </div>
             {/* className */}
             <div style={{ marginBottom: 12 }}>
@@ -2051,20 +2217,25 @@ function ComponentLibraryPage({ library, setLibrary, flash }) {
         )}
 
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr><TH>ID</TH><TH>이름</TH><TH>클래스명</TH><TH>이미지</TH><TH a="center">속성</TH><TH a="center">메서드</TH><TH>설명</TH><TH a="center">버전</TH></tr></thead>
+          <thead><tr><TH>ID</TH><TH>이름</TH><TH>타입</TH><TH>클래스명</TH><TH>이미지</TH><TH a="center">속성</TH><TH a="center">메서드</TH><TH>설명</TH><TH a="center">버전</TH></tr></thead>
           <tbody>
-            {library.map(c => (
-              <tr key={c.id}>
-                <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#7E22CE" }}>{c.id}</span></TD>
-                <TD b>{c.name}</TD>
-                <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#6366F1" }}>{c.className || "—"}</span></TD>
-                <TD><span style={{ fontSize: 12, color: "#64748B", fontFamily: "'JetBrains Mono',monospace" }}>{c.image}</span></TD>
-                <TD a="center">{c.attributes?.length || 0}</TD>
-                <TD a="center">{c.methods?.length || 0}</TD>
-                <TD>{c.description}</TD>
-                <TD a="center">{c.version}</TD>
-              </tr>
-            ))}
+            {library.map(c => {
+              const typeColors = { component: ["#F1F5F9","#475569"], solver: ["#FEF3C7","#92400E"], environment: ["#DBEAFE","#1E40AF"], train: ["#F3E8FF","#6B21A8"] };
+              const [tbg, tfg] = typeColors[c.type] || typeColors.component;
+              return (
+                <tr key={c.id}>
+                  <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#7E22CE" }}>{c.id}</span></TD>
+                  <TD b>{c.name}</TD>
+                  <TD><span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: tbg, color: tfg }}>{c.type || "component"}</span></TD>
+                  <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#6366F1" }}>{c.className || "—"}</span></TD>
+                  <TD><span style={{ fontSize: 12, color: "#64748B", fontFamily: "'JetBrains Mono',monospace" }}>{c.image}</span></TD>
+                  <TD a="center">{c.attributes?.length || 0}</TD>
+                  <TD a="center">{c.methods?.length || 0}</TD>
+                  <TD>{c.description}</TD>
+                  <TD a="center">{c.version}</TD>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </Card>
