@@ -2947,12 +2947,25 @@ function WorkloadsPage({ workloads, specs }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {["GPU", "메모리", "Best Efficiency"].map(param => (
-                      <tr key={param}>
-                        <td style={{ padding: "5px 10px", borderBottom: "1px solid #F1F5F9", color: "#475569" }}>{param}</td>
-                        {compareData.map(d => {
-                          const val = param === "GPU" ? d.workload.gpu : param === "메모리" ? d.workload.mem : d.metrics[d.metrics.length - 1]?.best_efficiency?.toFixed(1) + "%";
-                          return <td key={d.workload.id} style={{ padding: "5px 10px", textAlign: "center", borderBottom: "1px solid #F1F5F9", fontFamily: "'JetBrains Mono',monospace" }}>{val}</td>;
+                    {[
+                      { label: "actor_lr", key: "actor_lr", values: ["0.0001", "0.001"] },
+                      { label: "critic_lr", key: "critic_lr", values: ["0.0001", "0.0001"] },
+                      { label: "minibatch_size", key: "minibatch", values: ["100", "100"] },
+                      { label: "warm_up_num", key: "warmup", values: ["200", "200"] },
+                      { label: "random_seed", key: "seed", values: ["1234", "5678"] },
+                      { label: "impeller_variation_ratio", key: "imp_var", values: ["0.2", "0.2"] },
+                      { label: "diffuser_variation_ratio", key: "dif_var", values: ["0.2", "0.15"] },
+                      { label: "impeller_blade_range", key: "imp_blade", values: ["4~8", "4~8"] },
+                      { label: "diffuser_blade_range", key: "dif_blade", values: ["8~14", "8~14"] },
+                      { label: "Best Efficiency", key: "best_eff", values: null },
+                    ].map((param, pi) => (
+                      <tr key={param.key}>
+                        <td style={{ padding: "5px 10px", borderBottom: "1px solid #F1F5F9", color: "#475569", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>{param.label}</td>
+                        {compareData.map((d, di) => {
+                          const val = param.values ? (param.values[di] || param.values[0]) : d.metrics[d.metrics.length - 1]?.best_efficiency?.toFixed(1) + "%";
+                          const otherVals = param.values ? compareData.map((_, oi) => param.values[oi] || param.values[0]).filter((_, oi) => oi !== di) : [];
+                          const isDiff = param.values && otherVals.length > 0 && otherVals.some(ov => ov !== val);
+                          return <td key={d.workload.id} style={{ padding: "5px 10px", textAlign: "center", borderBottom: "1px solid #F1F5F9", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: isDiff ? 700 : 400, color: isDiff ? "#DC2626" : "#334155", background: isDiff ? "#FEF2F2" : "transparent" }}>{val}</td>;
                         })}
                       </tr>
                     ))}
