@@ -44,33 +44,6 @@ const now = () => { const d = new Date(); return d.getFullYear() + "-" + String(
 const THRESHOLD = { gpu: 4, mem: 128 };
 
 const INIT_SPECS = [
-  { id: "APP-001", name: "LLM-FineTune-v3", version: "1.2.0", status: "ready", created: "2025-02-01",
-    tasks: [
-      { id: "TASK-001", name: "training-pipeline", imported_from: null,
-        components: [
-          { id: "C-001", name: "data-loader", image: "registry.avatar.io/data-loader:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "32GB", params: {}, order: 1 },
-          { id: "C-002", name: "preprocessor", image: "registry.avatar.io/preprocessor:2.1", tag: "2.1", gpu_type: "A100", gpu_count: 2, mem: "64GB", params: { batch_size: 128 }, order: 2 },
-          { id: "C-003", name: "trainer", image: "registry.avatar.io/llm-trainer:3.1", tag: "3.1", gpu_type: "A100", gpu_count: 4, mem: "128GB", params: { lr: 0.001, epochs: 30 }, order: 3 },
-          { id: "C-004", name: "evaluator", image: "registry.avatar.io/evaluator:1.5", tag: "1.5", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 4 },
-        ],
-        workflow: [{ from: "C-001", to: "C-002" }, { from: "C-002", to: "C-003" }, { from: "C-003", to: "C-004" }]
-      }
-    ],
-    imported_apps: []
-  },
-  { id: "APP-002", name: "ResNet-Exp-42", version: "2.0.1", status: "ready", created: "2025-01-28",
-    tasks: [
-      { id: "TASK-002", name: "cv-training", imported_from: null,
-        components: [
-          { id: "C-005", name: "data-loader", image: "registry.avatar.io/cv-loader:1.2", tag: "1.2", gpu_type: "V100", gpu_count: 1, mem: "32GB", params: {}, order: 1 },
-          { id: "C-006", name: "trainer", image: "registry.avatar.io/cv-resnet:2.0", tag: "2.0", gpu_type: "V100", gpu_count: 2, mem: "64GB", params: { lr: 0.01, epochs: 50 }, order: 2 },
-          { id: "C-007", name: "evaluator", image: "registry.avatar.io/cv-eval:1.0", tag: "1.0", gpu_type: "V100", gpu_count: 1, mem: "16GB", params: {}, order: 3 },
-        ],
-        workflow: [{ from: "C-005", to: "C-006" }, { from: "C-006", to: "C-007" }]
-      }
-    ],
-    imported_apps: []
-  },
   { id: "APP-003", name: "RCP-BladeOpt", version: "1.0.0", status: "ready", created: "2025-03-01",
     tasks: [
       { id: "TASK-RCP-01", name: "blade-optimization", imported_from: null,
@@ -164,12 +137,6 @@ class WorkflowTrainBase(ComponentBase):
 `;
 
 const INIT_LIBRARY = [
-  { id: "CL-01", name: "env-simulator", image: "registry.avatar.io/env-sim:1.0", description: "RL 환경 시뮬레이터", version: "1.0", created: "2025-01-15", type: "component" },
-  { id: "CL-02", name: "rl-agent", image: "registry.avatar.io/rl-agent:2.0", description: "강화학습 에이전트", version: "2.0", created: "2025-01-20", type: "component" },
-  { id: "CL-03", name: "reward-calculator", image: "registry.avatar.io/reward-calc:1.0", description: "보상 함수 계산기", version: "1.0", created: "2025-01-22", type: "component" },
-  { id: "CL-04", name: "data-loader", image: "registry.avatar.io/data-loader:1.0", description: "데이터 로더", version: "1.0", created: "2025-01-10", type: "component" },
-  { id: "CL-05", name: "preprocessor", image: "registry.avatar.io/preprocessor:2.1", description: "데이터 전처리기", version: "2.1", created: "2025-01-12", type: "component" },
-  { id: "CL-06", name: "evaluator", image: "registry.avatar.io/evaluator:1.5", description: "모델 평가기", version: "1.5", created: "2025-01-18", type: "component" },
   // RCP 블레이드 최적화 컴포넌트
   { id: "CL-10", name: "rcp-setup", image: "registry.avatar.io/rcp-setup:1.0", description: "RCP 블레이드 상태 초기화", version: "1.0", created: "2025-03-01", type: "component",
     className: "RCPSetupBase",
@@ -218,21 +185,18 @@ const INIT_LIBRARY = [
   },
 ];
 
-const INIT_TEST_RUNS = [
-  { id: "RUN-INIT01", specId: "APP-001", specName: "LLM-FineTune-v3", status: "passed", gpu: "A100 x 2", mem: "64GB", created: "2025-01-29 15:30", duration: "0.34s", log: "[OK] 이미지 로드 성공 (A100 x 2)\n[OK] 환경 변수 검증 완료\n[OK] 컴포넌트 초기화 성공\n[OK] App 실행 완료 (0.34s)\nResult: PASS" },
-];
+const INIT_TEST_RUNS = [];
 
 const INIT_WORKLOADS = [
-  { id: "WL-DEMO1", name: "BERT-Classifier", specId: "APP-001", requester: "정연구원", status: "completed", priority: "high", gpu: "A100 x 2", mem: "64GB", submitted: "2025-01-30 11:00", approved: "2025-01-30 12:00", testRunRef: "RUN-INIT01", completedAt: "2025-01-31 09:15", needsApproval: true, loopTest: { status: "passed", episodes: 5, results: { successRate: "100%", avgDuration: "0.34s", log: "Run 1: SUCCESS (0.32s)\nRun 3: SUCCESS (0.35s)\nRun 5: SUCCESS (0.34s)" }, executedBy: "developer", executedAt: "2025-01-30 11:30", attachedToRequest: true, reviewedBy: "admin", reviewedAt: "2025-01-30 12:00" } },
-  { id: "WL-DEMO2", name: "RCP-BladeOpt-v2", specId: "APP-003", requester: "김연구원", status: "completed", priority: "medium", gpu: "A100 x 2", mem: "64GB", submitted: "2025-02-15 14:00", approved: "2025-02-15 15:00", completedAt: "2025-02-16 10:30", needsApproval: false },
+  { id: "WL-RCP1", name: "RCP-BladeOpt-training", specId: "APP-003", requester: "나", status: "completed", priority: "high", gpu: "A100 x 4", mem: "128GB", submitted: "2026-03-26 10:01", approved: "2026-03-26 10:30", completedAt: "2026-03-26 18:00", needsApproval: true, loopTest: { status: "passed", episodes: 10, results: { convergence: true, avgReward: 0.82, finalReward: 0.91, log: "Episode 1: reward=0.31\nEpisode 5: reward=0.72\nEpisode 10: reward=0.91\nConvergence: YES" }, executedBy: "developer", executedAt: "2026-03-26 09:30", attachedToRequest: true, reviewedBy: "admin", reviewedAt: "2026-03-26 10:30" } },
+  { id: "WL-RCP2", name: "RCP-BladeOpt-v2", specId: "APP-003", requester: "김연구원", status: "completed", priority: "medium", gpu: "A100 x 2", mem: "64GB", submitted: "2025-02-15 14:00", approved: "2025-02-15 15:00", completedAt: "2025-02-16 10:30", needsApproval: false },
 ];
 
 const INIT_MODELS = [
-  { id: "MD-DEMO1", name: "bert-cls-ep30", workloadId: "WL-DEMO1", workload: "BERT-Classifier", specId: "APP-001", created: "2025-01-31 09:15", size: "1.8 GB", metrics: { accuracy: "91.7%", loss: "0.058" } },
-  { id: "MD-RCP1", name: "rcp-blade-opt-v1", workloadId: "WL-RCP1", workload: "RCP-BladeOpt-training", specId: "APP-003", created: "2026-03-26 10:01", size: "380 MB",
-    metrics: { accuracy: "92.8%", loss: "0.041", best_efficiency: "92.8%", head_coefficient: "0.93", flow_coefficient: "0.42", axial_thrust: "12.4", tplc: "115.7", total_steps: "1200" } },
-  { id: "MD-RCP2", name: "rcp-blade-opt-v2", workloadId: "WL-DEMO2", workload: "RCP-BladeOpt-v2", specId: "APP-003", created: "2025-02-16 10:30", size: "380 MB",
-    metrics: { accuracy: "88.1%", loss: "0.067", best_efficiency: "88.1%", head_coefficient: "0.87", flow_coefficient: "0.39", axial_thrust: "14.2", tplc: "128.3", total_steps: "800" } },
+  { id: "MD-RCP1", name: "rcp-blade-opt-v1", workloadId: "WL-RCP1", workload: "RCP-BladeOpt-training", specId: "APP-003", created: "2026-03-26 18:00", size: "380 MB",
+    metrics: { best_efficiency: "92.8%", head_coefficient: "0.93", flow_coefficient: "0.42", axial_thrust: "12.4", tplc: "115.7", total_steps: "1200" } },
+  { id: "MD-RCP2", name: "rcp-blade-opt-v2", workloadId: "WL-RCP2", workload: "RCP-BladeOpt-v2", specId: "APP-003", created: "2025-02-16 10:30", size: "380 MB",
+    metrics: { best_efficiency: "88.1%", head_coefficient: "0.87", flow_coefficient: "0.39", axial_thrust: "14.2", tplc: "128.3", total_steps: "800" } },
 ];
 
 const RESOURCES = {
