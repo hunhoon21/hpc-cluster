@@ -224,6 +224,7 @@ const INIT_TEST_RUNS = [
 
 const INIT_WORKLOADS = [
   { id: "WL-DEMO1", name: "BERT-Classifier", specId: "APP-001", requester: "정연구원", status: "completed", priority: "high", gpu: "A100 x 2", mem: "64GB", submitted: "2025-01-30 11:00", approved: "2025-01-30 12:00", testRunRef: "RUN-INIT01", completedAt: "2025-01-31 09:15", needsApproval: true, loopTest: { status: "passed", episodes: 5, results: { successRate: "100%", avgDuration: "0.34s", log: "Run 1: SUCCESS (0.32s)\nRun 3: SUCCESS (0.35s)\nRun 5: SUCCESS (0.34s)" }, executedBy: "developer", executedAt: "2025-01-30 11:30", attachedToRequest: true, reviewedBy: "admin", reviewedAt: "2025-01-30 12:00" } },
+  { id: "WL-DEMO2", name: "RCP-BladeOpt-v2", specId: "APP-003", requester: "김연구원", status: "completed", priority: "medium", gpu: "A100 x 2", mem: "64GB", submitted: "2025-02-15 14:00", approved: "2025-02-15 15:00", completedAt: "2025-02-16 10:30", needsApproval: false },
 ];
 
 const INIT_MODELS = [
@@ -621,7 +622,7 @@ export default function App() {
           {page === "approval" && <ApprovalPage {...{ pending, approveWorkload, rejectWorkload, runLoopTest, reviewLoopTest, testRuns, setModal }} />}
           {page === "queue" && <QueuePage {...{ workloads, setWorkloads, running, queued, flash }} />}
           {page === "resources" && <ResourcesPage workloads={workloads} />}
-          {page === "workloads" && <WorkloadsPage workloads={workloads} />}
+          {page === "workloads" && <WorkloadsPage workloads={workloads} specs={specs} />}
           {page === "models" && <ModelsPage models={models} flash={flash} />}
         </main>
       </div>
@@ -2690,7 +2691,136 @@ function ResourcesPage({ workloads }) {
 }
 
 /* ═══════════════════════ WORKLOADS LIST ═══════════════════════ */
-function WorkloadsPage({ workloads }) {
+function WorkloadsPage({ workloads, specs }) {
+  const [selectedWL, setSelectedWL] = useState(null);
+  const [compareIds, setCompareIds] = useState([]);
+  const [metricsTab, setMetricsTab] = useState("progress");
+
+  const generateSimulatedMetrics = (workloadId, totalSteps = 500) => {
+    const seed = workloadId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+    const rng = (i) => {
+      const x = Math.sin(seed * 9301 + i * 49297) * 49297;
+      return x - Math.floor(x);
+    };
+    const metrics = [];
+    let bestEff = 0;
+    for (let step = 1; step <= totalSteps; step++) {
+      const progress = step / totalSteps;
+      const noise = (rng(step) - 0.5) * 0.3;
+      const reward = Math.tanh(progress * 3 - 1) * 0.8 + noise * (1 - progress);
+      const baseEff = 63 + (92 - 63) * Math.tanh(progress * 2.5);
+      const efficiency = baseEff + (rng(step + 1000) - 0.5) * 8 * (1 - progress * 0.7);
+      bestEff = Math.max(bestEff, efficiency);
+      const entry = {
+        step,
+        reward: Math.max(-1, Math.min(1, reward)),
+        efficiency,
+        best_efficiency: bestEff,
+      };
+      if (step > 200) {
+        entry.critic_loss = 5 * Math.exp(-progress * 3) + rng(step + 2000) * 0.5;
+        entry.predict_q_value = Math.tanh(progress * 2) * 2 + (rng(step + 3000) - 0.5) * 0.3;
+      }
+      metrics.push(entry);
+    }
+    return metrics;
+  };
+
+  const renderMetricChart = (title, data, key, yMin, yMax, color, baseline) => {
+    if (!data || data.length === 0) return (
+      <div style={{ padding: 30, textAlign: "center", color: "#94A3B8", fontSize: 12, border: "1px solid #E2E8F0", borderRadius: 10 }}>
+        {title}: warm-up 진행 중...
+      </div>
+    );
+    const w = 400, h = 180, pad = { t: 30, r: 10, b: 30, l: 50 };
+    const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
+    const xScale = (i) => pad.l + (i / (data.length - 1 || 1)) * pw;
+    const yScale = (v) => pad.t + ph - ((v - yMin) / (yMax - yMin || 1)) * ph;
+    const points = data.map((d, i) => `${xScale(i)},${yScale(d[key])}`);
+    const maWindow = Math.min(20, Math.floor(data.length / 5));
+    const maPoints = [];
+    if (maWindow > 1) {
+      for (let i = 0; i < data.length; i++) {
+        const start = Math.max(0, i - maWindow);
+        const slice = data.slice(start, i + 1);
+        const avg = slice.reduce((s, d) => s + d[key], 0) / slice.length;
+        maPoints.push(`${xScale(i)},${yScale(avg)}`);
+      }
+    }
+    return (
+      <div style={{ border: "1px solid #E2E8F0", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+        <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block", width: "100%", height: "auto" }}>
+          <text x={pad.l} y={16} fontSize={12} fontWeight={700} fill="#0F172A">{title}</text>
+          <text x={pad.l - 5} y={pad.t + 4} fontSize={9} fill="#94A3B8" textAnchor="end">{yMax}</text>
+          <text x={pad.l - 5} y={h - pad.b + 4} fontSize={9} fill="#94A3B8" textAnchor="end">{yMin}</text>
+          <line x1={pad.l} y1={pad.t} x2={pad.l} y2={h - pad.b} stroke="#E2E8F0" strokeWidth={1} />
+          <line x1={pad.l} y1={h - pad.b} x2={w - pad.r} y2={h - pad.b} stroke="#E2E8F0" strokeWidth={1} />
+          {baseline !== null && baseline !== undefined && (
+            <>
+              <line x1={pad.l} y1={yScale(baseline)} x2={w - pad.r} y2={yScale(baseline)} stroke="#EF4444" strokeWidth={1} strokeDasharray="4,4" />
+              <text x={w - pad.r - 2} y={yScale(baseline) - 4} fontSize={9} fill="#EF4444" textAnchor="end">{baseline}%</text>
+            </>
+          )}
+          <polyline points={points.join(" ")} fill="none" stroke={color} strokeWidth={1} opacity={0.3} />
+          {maPoints.length > 0 && (
+            <polyline points={maPoints.join(" ")} fill="none" stroke={color} strokeWidth={2} />
+          )}
+          <text x={w / 2} y={h - 5} fontSize={9} fill="#94A3B8" textAnchor="middle">step</text>
+          <text x={pad.l} y={h - 5} fontSize={9} fill="#94A3B8">{data[0]?.step}</text>
+          <text x={w - pad.r} y={h - 5} fontSize={9} fill="#94A3B8" textAnchor="end">{data[data.length - 1]?.step}</text>
+        </svg>
+      </div>
+    );
+  };
+
+  const renderCompareChart = (title, compareData, key, yMin, yMax, baseline) => {
+    const w = 400, h = 200, pad = { t: 30, r: 80, b: 30, l: 50 };
+    const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
+    const maxSteps = Math.max(...compareData.map(d => d.metrics.length));
+    const xScale = (i) => pad.l + (i / (maxSteps - 1 || 1)) * pw;
+    const yScale = (v) => pad.t + ph - ((v - yMin) / (yMax - yMin || 1)) * ph;
+    return (
+      <div style={{ border: "1px solid #E2E8F0", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+        <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block", width: "100%", height: "auto" }}>
+          <text x={pad.l} y={16} fontSize={12} fontWeight={700} fill="#0F172A">{title}</text>
+          <text x={pad.l - 5} y={pad.t + 4} fontSize={9} fill="#94A3B8" textAnchor="end">{yMax}</text>
+          <text x={pad.l - 5} y={h - pad.b + 4} fontSize={9} fill="#94A3B8" textAnchor="end">{yMin}</text>
+          <line x1={pad.l} y1={pad.t} x2={pad.l} y2={h - pad.b} stroke="#E2E8F0" strokeWidth={1} />
+          <line x1={pad.l} y1={h - pad.b} x2={w - pad.r} y2={h - pad.b} stroke="#E2E8F0" strokeWidth={1} />
+          {baseline !== null && baseline !== undefined && (
+            <>
+              <line x1={pad.l} y1={yScale(baseline)} x2={w - pad.r} y2={yScale(baseline)} stroke="#EF4444" strokeWidth={1} strokeDasharray="4,4" />
+              <text x={w - pad.r + 4} y={yScale(baseline) + 3} fontSize={9} fill="#EF4444">{baseline}%</text>
+            </>
+          )}
+          {compareData.map((d, idx) => {
+            const maWindow = Math.min(20, Math.floor(d.metrics.length / 5));
+            const maPoints = [];
+            for (let i = 0; i < d.metrics.length; i++) {
+              if (d.metrics[i][key] === undefined) continue;
+              const start = Math.max(0, i - maWindow);
+              const slice = d.metrics.slice(start, i + 1).filter(m => m[key] !== undefined);
+              if (slice.length === 0) continue;
+              const avg = slice.reduce((s, m) => s + m[key], 0) / slice.length;
+              maPoints.push(`${xScale(i)},${yScale(avg)}`);
+            }
+            return (
+              <g key={d.workload.id}>
+                <polyline points={maPoints.join(" ")} fill="none" stroke={d.color} strokeWidth={2} />
+                <line x1={w - pad.r + 6} y1={pad.t + 10 + idx * 16} x2={w - pad.r + 20} y2={pad.t + 10 + idx * 16} stroke={d.color} strokeWidth={2} />
+                <text x={w - pad.r + 24} y={pad.t + 14 + idx * 16} fontSize={9} fill={d.color}>{d.workload.name.slice(0, 10)}</text>
+              </g>
+            );
+          })}
+          <text x={w / 2} y={h - 5} fontSize={9} fill="#94A3B8" textAnchor="middle">step</text>
+        </svg>
+      </div>
+    );
+  };
+
+  const tabBtnStyle = (tab) => ({ padding: "5px 14px", borderRadius: 6, border: metricsTab === tab ? "2px solid #0F172A" : "1px solid #E2E8F0", background: metricsTab === tab ? "#F1F5F9" : "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 });
+  const closeBtnStyle = { padding: "5px 10px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer" };
+
   return (
     <div>
       <Title sub="전체 워크로드의 실행 상태를 확인합니다.">워크로드 목록</Title>
@@ -2699,7 +2829,7 @@ function WorkloadsPage({ workloads }) {
           <thead><tr><TH>워크로드</TH><TH a="center">상태</TH><TH a="center">우선순위</TH><TH>자원</TH><TH>신청자</TH><TH>신청일시</TH><TH a="center">승인 방식</TH><TH a="center">테스트 참조</TH></tr></thead>
           <tbody>
             {[...workloads].reverse().map(w => (
-              <tr key={w.id}>
+              <tr key={w.id} onClick={() => { setSelectedWL(w); setMetricsTab("progress"); setCompareIds([]); }} style={{ cursor: "pointer", background: selectedWL?.id === w.id ? "#F1F5F9" : "transparent", transition: "background .12s" }} onMouseEnter={e => { if (selectedWL?.id !== w.id) e.currentTarget.style.background = "#F8FAFC"; }} onMouseLeave={e => { if (selectedWL?.id !== w.id) e.currentTarget.style.background = "transparent"; }}>
                 <TD b>{w.name}</TD>
                 <TD a="center">
                   {w.status === "running" ? (
@@ -2714,13 +2844,13 @@ function WorkloadsPage({ workloads }) {
                 <TD>{w.requester}</TD>
                 <TD>{w.submitted}</TD>
                 <TD a="center">
-                  {w.needsApproval 
+                  {w.needsApproval
                     ? <span style={{ fontSize: 11, color: "#92400E", background: "#FEF3C7", padding: "2px 8px", borderRadius: 4 }}>관리자</span>
                     : <span style={{ fontSize: 11, color: "#1E40AF", background: "#EFF6FF", padding: "2px 8px", borderRadius: 4 }}>자동승인</span>
                   }
                 </TD>
                 <TD a="center">
-                  {w.testRunRef 
+                  {w.testRunRef
                     ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "#7E22CE" }}>{w.testRunRef}</span>
                     : <span style={{ fontSize: 11, color: "#CBD5E1" }}>—</span>
                   }
@@ -2730,6 +2860,109 @@ function WorkloadsPage({ workloads }) {
           </tbody>
         </table>
       </Card>
+
+      {/* Training Progress Panel */}
+      {selectedWL && metricsTab === "progress" && (() => {
+        const metrics = generateSimulatedMetrics(selectedWL.id);
+        const wlSteps = selectedWL.status === "running" ? Math.floor(metrics.length * 0.6) : metrics.length;
+        const visibleMetrics = metrics.slice(0, wlSteps);
+        return (
+          <Card style={{ marginTop: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div>
+                <span style={{ fontSize: 15, fontWeight: 700 }}>{selectedWL.name} — 학습 진행</span>
+                {selectedWL.status === "running" && <span style={{ marginLeft: 8, fontSize: 11, color: "#059669", fontWeight: 600 }}>● 실시간</span>}
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => setMetricsTab("progress")} style={tabBtnStyle("progress")}>학습 진행</button>
+                <button onClick={() => setMetricsTab("compare")} style={tabBtnStyle("compare")}>실험 비교</button>
+                <button onClick={() => setSelectedWL(null)} style={closeBtnStyle}>✕</button>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+              {renderMetricChart("Reward", visibleMetrics, "reward", -1, 1, "#1E40AF", null)}
+              {renderMetricChart("Efficiency (%)", visibleMetrics, "efficiency", 50, 100, "#059669", 83.9)}
+              {renderMetricChart("Critic Loss", visibleMetrics.filter(m => m.critic_loss !== undefined), "critic_loss", 0, 6, "#DC2626", null)}
+              {renderMetricChart("Predict Q-value", visibleMetrics.filter(m => m.predict_q_value !== undefined), "predict_q_value", -1, 3, "#7C3AED", null)}
+            </div>
+            <div style={{ display: "flex", gap: 16, padding: "12px 16px", background: "#F8FAFC", borderRadius: 10, fontSize: 13 }}>
+              <div><span style={{ color: "#64748B" }}>Best Efficiency:</span> <strong>{visibleMetrics[visibleMetrics.length-1]?.best_efficiency?.toFixed(1)}%</strong></div>
+              <div><span style={{ color: "#64748B" }}>Step:</span> <strong>{wlSteps}</strong></div>
+              <div><span style={{ color: "#64748B" }}>Latest Reward:</span> <strong>{visibleMetrics[visibleMetrics.length-1]?.reward?.toFixed(3)}</strong></div>
+            </div>
+          </Card>
+        );
+      })()}
+
+      {/* Experiment Comparison Tab */}
+      {selectedWL && metricsTab === "compare" && (() => {
+        const sameAppWLs = workloads.filter(w => w.specId === selectedWL.specId && (w.status === "completed" || w.status === "running"));
+        const activeCompareIds = compareIds.length > 0 ? compareIds : [selectedWL.id];
+        const colors = ["#1E40AF", "#DC2626", "#059669", "#7C3AED", "#D97706"];
+        const compareData = activeCompareIds.map((id, idx) => ({
+          workload: workloads.find(w => w.id === id),
+          metrics: generateSimulatedMetrics(id),
+          color: colors[idx % colors.length],
+        })).filter(d => d.workload);
+        return (
+          <Card style={{ marginTop: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <span style={{ fontSize: 15, fontWeight: 700 }}>실험 비교 — {specs.find(s => s.id === selectedWL.specId)?.name || selectedWL.name}</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => setMetricsTab("progress")} style={tabBtnStyle("progress")}>학습 진행</button>
+                <button onClick={() => setMetricsTab("compare")} style={tabBtnStyle("compare")}>실험 비교</button>
+                <button onClick={() => setSelectedWL(null)} style={closeBtnStyle}>✕</button>
+              </div>
+            </div>
+            <div style={{ marginBottom: 14, padding: "10px 14px", background: "#F8FAFC", borderRadius: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6 }}>실행 선택 (같은 App)</div>
+              {sameAppWLs.map(w => (
+                <label key={w.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, fontSize: 12, cursor: "pointer" }}>
+                  <input type="checkbox" checked={activeCompareIds.includes(w.id)} onChange={e => {
+                    if (e.target.checked) setCompareIds([...activeCompareIds, w.id]);
+                    else setCompareIds(activeCompareIds.filter(id => id !== w.id));
+                  }} />
+                  <span style={{ fontWeight: 600 }}>{w.name}</span>
+                  <span style={{ color: "#64748B" }}>({w.gpu}, {w.mem})</span>
+                  <Badge v={w.status}>{w.status === "completed" ? "완료" : w.status === "running" ? "실행 중" : w.status}</Badge>
+                </label>
+              ))}
+            </div>
+            {compareData.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                {renderCompareChart("Efficiency (%)", compareData, "efficiency", 50, 100, 83.9)}
+                {renderCompareChart("Reward", compareData, "reward", -1, 1, null)}
+              </div>
+            )}
+            {compareData.length > 1 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>파라미터 비교</div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ padding: "6px 10px", textAlign: "left", borderBottom: "2px solid #E2E8F0", color: "#64748B" }}>파라미터</th>
+                      {compareData.map(d => (
+                        <th key={d.workload.id} style={{ padding: "6px 10px", textAlign: "center", borderBottom: "2px solid #E2E8F0", color: d.color, fontWeight: 700 }}>{d.workload.name}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {["GPU", "메모리", "Best Efficiency"].map(param => (
+                      <tr key={param}>
+                        <td style={{ padding: "5px 10px", borderBottom: "1px solid #F1F5F9", color: "#475569" }}>{param}</td>
+                        {compareData.map(d => {
+                          const val = param === "GPU" ? d.workload.gpu : param === "메모리" ? d.workload.mem : d.metrics[d.metrics.length - 1]?.best_efficiency?.toFixed(1) + "%";
+                          return <td key={d.workload.id} style={{ padding: "5px 10px", textAlign: "center", borderBottom: "1px solid #F1F5F9", fontFamily: "'JetBrains Mono',monospace" }}>{val}</td>;
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        );
+      })()}
     </div>
   );
 }
