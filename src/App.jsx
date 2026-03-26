@@ -228,7 +228,11 @@ const INIT_WORKLOADS = [
 ];
 
 const INIT_MODELS = [
-  { id: "MD-DEMO1", name: "bert-cls-ep30", workloadId: "WL-DEMO1", workload: "BERT-Classifier", created: "2025-01-31 09:15", size: "1.8 GB", metrics: { accuracy: "91.7%", loss: "0.058" } },
+  { id: "MD-DEMO1", name: "bert-cls-ep30", workloadId: "WL-DEMO1", workload: "BERT-Classifier", specId: "APP-001", created: "2025-01-31 09:15", size: "1.8 GB", metrics: { accuracy: "91.7%", loss: "0.058" } },
+  { id: "MD-RCP1", name: "rcp-blade-opt-v1", workloadId: "WL-RCP1", workload: "RCP-BladeOpt-training", specId: "APP-003", created: "2026-03-26 10:01", size: "380 MB",
+    metrics: { accuracy: "92.8%", loss: "0.041", best_efficiency: "92.8%", head_coefficient: "0.93", flow_coefficient: "0.42", axial_thrust: "12.4", tplc: "115.7", total_steps: "1200" } },
+  { id: "MD-RCP2", name: "rcp-blade-opt-v2", workloadId: "WL-DEMO2", workload: "RCP-BladeOpt-v2", specId: "APP-003", created: "2025-02-16 10:30", size: "380 MB",
+    metrics: { accuracy: "88.1%", loss: "0.067", best_efficiency: "88.1%", head_coefficient: "0.87", flow_coefficient: "0.39", axial_thrust: "14.2", tplc: "128.3", total_steps: "800" } },
 ];
 
 const RESOURCES = {
@@ -2982,6 +2986,14 @@ function WorkloadsPage({ workloads, specs }) {
 
 /* ═══════════════════════ MODELS ═══════════════════════ */
 function ModelsPage({ models, flash }) {
+  const [selectedModel, setSelectedModel] = useState(null);
+  const [compareIds, setCompareIds] = useState([]);
+  const [viewTab, setViewTab] = useState("detail"); // "detail" | "compare"
+
+  const sel = models.find(m => m.id === selectedModel);
+  const sameAppModels = sel ? models.filter(m => m.specId === sel.specId) : [];
+  const hasRLMetrics = (m) => m.metrics.best_efficiency !== undefined;
+
   return (
     <div>
       <Title sub="워크로드 실행 완료 후 자동 생성된 결과 모델입니다.">결과 모델</Title>
@@ -2990,21 +3002,160 @@ function ModelsPage({ models, flash }) {
       ) : (
         <Card>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><TH>모델명</TH><TH>원본 워크로드</TH><TH a="center">생성일시</TH><TH a="center">크기</TH><TH a="center">Accuracy</TH><TH a="center">Loss</TH><TH a="center">작업</TH></tr></thead>
+            <thead><tr><TH>모델명</TH><TH>원본 워크로드</TH><TH a="center">생성일시</TH><TH a="center">크기</TH><TH a="center">성능</TH><TH a="center">작업</TH></tr></thead>
             <tbody>
               {[...models].reverse().map(m => (
-                <tr key={m.id}>
+                <tr key={m.id} onClick={() => { setSelectedModel(m.id); setViewTab("detail"); setCompareIds([m.id]); }} style={{ cursor: "pointer", background: selectedModel === m.id ? "#FEF3C7" : "transparent", transition: "background .15s" }}>
                   <TD b>{m.name}</TD>
                   <TD>{m.workload}</TD>
                   <TD a="center">{m.created}</TD>
                   <TD a="center">{m.size}</TD>
-                  <TD a="center"><span style={{ fontWeight: 700, color: "#166534" }}>{m.metrics.accuracy}</span></TD>
-                  <TD a="center"><span style={{ color: "#64748B" }}>{m.metrics.loss}</span></TD>
-                  <TD a="center"><Btn sz="sm" icon="dl" onClick={() => flash(`${m.name} 다운로드 시작`)}>다운로드</Btn></TD>
+                  <TD a="center"><span style={{ fontWeight: 700, color: "#166534" }}>{m.metrics.best_efficiency || m.metrics.accuracy}</span></TD>
+                  <TD a="center"><Btn sz="sm" icon="dl" onClick={(e) => { e.stopPropagation(); flash(`${m.name} 다운로드 시작`); }}>다운로드</Btn></TD>
                 </tr>
               ))}
             </tbody>
           </table>
+        </Card>
+      )}
+
+      {/* Model Detail / Compare Panel */}
+      {sel && (
+        <Card style={{ marginTop: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <span style={{ fontSize: 15, fontWeight: 700 }}>{sel.name}</span>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => setViewTab("detail")} style={{ padding: "5px 14px", borderRadius: 6, border: viewTab === "detail" ? "2px solid #0F172A" : "1px solid #E2E8F0", background: viewTab === "detail" ? "#F1F5F9" : "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>성능 요약</button>
+              {sameAppModels.length > 1 && <button onClick={() => setViewTab("compare")} style={{ padding: "5px 14px", borderRadius: 6, border: viewTab === "compare" ? "2px solid #0F172A" : "1px solid #E2E8F0", background: viewTab === "compare" ? "#F1F5F9" : "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>모델 비교</button>}
+              <button onClick={() => setSelectedModel(null)} style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontFamily: "inherit" }}>✕</button>
+            </div>
+          </div>
+
+          {viewTab === "detail" && (
+            <>
+              {/* Performance Summary */}
+              <div style={{ display: "grid", gridTemplateColumns: hasRLMetrics(sel) ? "repeat(4, 1fr)" : "repeat(2, 1fr)", gap: 12, marginBottom: 14 }}>
+                {hasRLMetrics(sel) ? (
+                  <>
+                    <div style={{ padding: "14px 16px", background: "#F0FDF4", borderRadius: 10, border: "1px solid #BBF7D0" }}>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 4 }}>Best Efficiency</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#166534" }}>{sel.metrics.best_efficiency}</div>
+                    </div>
+                    <div style={{ padding: "14px 16px", background: "#EFF6FF", borderRadius: 10, border: "1px solid #BFDBFE" }}>
+                      <div style={{ fontSize: 11, color: "#1E40AF", marginBottom: 4 }}>Head Coefficient</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#1E40AF" }}>{sel.metrics.head_coefficient}</div>
+                    </div>
+                    <div style={{ padding: "14px 16px", background: "#FEF3C7", borderRadius: 10, border: "1px solid #FDE68A" }}>
+                      <div style={{ fontSize: 11, color: "#92400E", marginBottom: 4 }}>TPLC</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#92400E" }}>{sel.metrics.tplc}</div>
+                    </div>
+                    <div style={{ padding: "14px 16px", background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
+                      <div style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}>Total Steps</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#0F172A" }}>{sel.metrics.total_steps}</div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ padding: "14px 16px", background: "#F0FDF4", borderRadius: 10, border: "1px solid #BBF7D0" }}>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 4 }}>Accuracy</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#166534" }}>{sel.metrics.accuracy}</div>
+                    </div>
+                    <div style={{ padding: "14px 16px", background: "#EFF6FF", borderRadius: 10, border: "1px solid #BFDBFE" }}>
+                      <div style={{ fontSize: 11, color: "#1E40AF", marginBottom: 4 }}>Loss</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#1E40AF" }}>{sel.metrics.loss}</div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Model Info */}
+              {hasRLMetrics(sel) && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+                  <div style={{ padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, fontSize: 12 }}>
+                    <span style={{ color: "#64748B" }}>Flow Coefficient: </span><strong>{sel.metrics.flow_coefficient}</strong>
+                  </div>
+                  <div style={{ padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, fontSize: 12 }}>
+                    <span style={{ color: "#64748B" }}>Axial Thrust: </span><strong>{sel.metrics.axial_thrust}</strong>
+                  </div>
+                  <div style={{ padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, fontSize: 12 }}>
+                    <span style={{ color: "#64748B" }}>Model Size: </span><strong>{sel.size}</strong>
+                  </div>
+                </div>
+              )}
+
+              {/* Source workload link */}
+              <div style={{ padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, fontSize: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span><span style={{ color: "#64748B" }}>원본 워크로드: </span><strong>{sel.workload}</strong> ({sel.workloadId})</span>
+                <span style={{ color: "#64748B" }}>생성일: {sel.created}</span>
+              </div>
+            </>
+          )}
+
+          {viewTab === "compare" && (
+            <>
+              {/* Model selector */}
+              <div style={{ marginBottom: 14, padding: "10px 14px", background: "#F8FAFC", borderRadius: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6 }}>모델 선택 (같은 App)</div>
+                {sameAppModels.map(m => (
+                  <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, fontSize: 12, cursor: "pointer" }}>
+                    <input type="checkbox" checked={compareIds.includes(m.id)} onChange={e => {
+                      if (e.target.checked) setCompareIds([...compareIds, m.id]);
+                      else setCompareIds(compareIds.filter(id => id !== m.id));
+                    }} />
+                    <span style={{ fontWeight: 600 }}>{m.name}</span>
+                    <span style={{ color: "#64748B" }}>({m.workload})</span>
+                  </label>
+                ))}
+              </div>
+
+              {/* Comparison table */}
+              {compareIds.length > 1 && (() => {
+                const compared = compareIds.map(id => models.find(m => m.id === id)).filter(Boolean);
+                const colors = ["#1E40AF", "#DC2626", "#059669", "#7C3AED"];
+                const metricsToCompare = hasRLMetrics(compared[0]) ? [
+                  { label: "Best Efficiency", key: "best_efficiency", best: "max" },
+                  { label: "Head Coefficient", key: "head_coefficient", best: "max" },
+                  { label: "Flow Coefficient", key: "flow_coefficient" },
+                  { label: "Axial Thrust", key: "axial_thrust", best: "min" },
+                  { label: "TPLC", key: "tplc", best: "min" },
+                  { label: "Total Steps", key: "total_steps" },
+                  { label: "Model Size", key: null, getter: (m) => m.size },
+                ] : [
+                  { label: "Accuracy", key: "accuracy", best: "max" },
+                  { label: "Loss", key: "loss", best: "min" },
+                  { label: "Model Size", key: null, getter: (m) => m.size },
+                ];
+
+                return (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ padding: "8px 10px", textAlign: "left", borderBottom: "2px solid #E2E8F0", color: "#64748B" }}>지표</th>
+                        {compared.map((m, i) => (
+                          <th key={m.id} style={{ padding: "8px 10px", textAlign: "center", borderBottom: "2px solid #E2E8F0", color: colors[i % colors.length], fontWeight: 700 }}>{m.name}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {metricsToCompare.map(metric => {
+                        const vals = compared.map(m => metric.getter ? metric.getter(m) : m.metrics[metric.key]);
+                        const numVals = vals.map(v => parseFloat(v));
+                        const bestIdx = metric.best === "max" ? numVals.indexOf(Math.max(...numVals.filter(n => !isNaN(n)))) : metric.best === "min" ? numVals.indexOf(Math.min(...numVals.filter(n => !isNaN(n)))) : -1;
+                        return (
+                          <tr key={metric.label}>
+                            <td style={{ padding: "6px 10px", borderBottom: "1px solid #F1F5F9", color: "#475569" }}>{metric.label}</td>
+                            {vals.map((val, i) => (
+                              <td key={i} style={{ padding: "6px 10px", textAlign: "center", borderBottom: "1px solid #F1F5F9", fontFamily: "'JetBrains Mono',monospace", fontWeight: i === bestIdx ? 700 : 400, color: i === bestIdx ? "#166534" : "#334155", background: i === bestIdx ? "#F0FDF4" : "transparent" }}>{val}</td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                );
+              })()}
+            </>
+          )}
         </Card>
       )}
     </div>
