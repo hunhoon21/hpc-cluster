@@ -591,7 +591,7 @@ export default function App() {
           {page === "queue" && <QueuePage {...{ workloads, setWorkloads, running, queued, flash }} />}
           {page === "resources" && <ResourcesPage workloads={workloads} />}
           {page === "workloads" && <WorkloadsPage workloads={workloads} specs={specs} />}
-          {page === "models" && <ModelsPage models={models} flash={flash} />}
+          {page === "models" && <ModelsPage models={models} flash={flash} setPage={setPage} />}
         </main>
       </div>
 
@@ -2949,7 +2949,7 @@ function WorkloadsPage({ workloads, specs }) {
 }
 
 /* ═══════════════════════ MODELS ═══════════════════════ */
-function ModelsPage({ models, flash }) {
+function ModelsPage({ models, flash, setPage }) {
   const [selectedModel, setSelectedModel] = useState(null);
   const [compareIds, setCompareIds] = useState([]);
   const [viewTab, setViewTab] = useState("detail"); // "detail" | "compare"
@@ -3049,7 +3049,11 @@ function ModelsPage({ models, flash }) {
 
               {/* Source workload link */}
               <div style={{ padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, fontSize: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span><span style={{ color: "#64748B" }}>원본 워크로드: </span><strong>{sel.workload}</strong> ({sel.workloadId})</span>
+                <span>
+                  <span style={{ color: "#64748B" }}>원본 워크로드: </span>
+                  <strong onClick={() => setPage("workloads")} style={{ color: "#1E40AF", cursor: "pointer", textDecoration: "underline" }}>{sel.workload}</strong>
+                  <span style={{ color: "#94A3B8", marginLeft: 4 }}>({sel.workloadId})</span>
+                </span>
                 <span style={{ color: "#64748B" }}>생성일: {sel.created}</span>
               </div>
             </>
