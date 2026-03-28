@@ -194,9 +194,9 @@ const INIT_WORKLOADS = [
 
 const INIT_MODELS = [
   { id: "MD-RCP1", name: "rcp-blade-opt-v1", workloadId: "WL-RCP1", workload: "RCP-BladeOpt-training", specId: "APP-003", created: "2026-03-26 18:00", size: "380 MB",
-    metrics: { best_efficiency: "92.8%", head_coefficient: "0.93", flow_coefficient: "0.42", axial_thrust: "12.4", tplc: "115.7", total_steps: "1200" } },
+    metrics: { best_efficiency: "92.8%", head_coefficient: "0.93", flow_coefficient: "0.42", axial_thrust: "12.4", tplc: "115.7", total_steps: "1200" }, operatorReady: false },
   { id: "MD-RCP2", name: "rcp-blade-opt-v2", workloadId: "WL-RCP2", workload: "RCP-BladeOpt-v2", specId: "APP-003", created: "2025-02-16 10:30", size: "380 MB",
-    metrics: { best_efficiency: "88.1%", head_coefficient: "0.87", flow_coefficient: "0.39", axial_thrust: "14.2", tplc: "128.3", total_steps: "800" } },
+    metrics: { best_efficiency: "88.1%", head_coefficient: "0.87", flow_coefficient: "0.39", axial_thrust: "14.2", tplc: "128.3", total_steps: "800" }, operatorReady: false },
 ];
 
 const RESOURCES = {
@@ -332,7 +332,7 @@ const exceedsThresholdSpec = (spec) => {
 /* ═══════════════════════════ MAIN APP ═══════════════════════════ */
 export default function App() {
   const [mode, setMode] = useState("user");
-  const [page, setPage] = useState("home");
+  const [page, setPage] = useState("builder");
   const [toast, setToast] = useState(null);
   const [modal, setModal] = useState(null);
   const [specs, setSpecs] = useState(INIT_SPECS);
@@ -342,7 +342,7 @@ export default function App() {
   const [library, setLibrary] = useState(INIT_LIBRARY);
 
   const flash = useCallback((m) => { setToast(m); setTimeout(() => setToast(null), 3500); }, []);
-  useEffect(() => { setPage("home"); }, [mode]);
+  useEffect(() => { setPage(mode === "user" ? "builder" : "trainer"); }, [mode]);
 
   /* ─── Execution Engine (max 1 concurrent, ~10s per job) ─── */
   const MAX_CONCURRENT = 1;
@@ -384,7 +384,8 @@ export default function App() {
             setModels(prev => [...prev, {
               id: mid(), name: mName, workloadId: w.id, workload: completed.name,
               created: t, size: sizes[Math.floor(Math.random() * sizes.length)],
-              metrics: { accuracy: (85 + Math.random() * 10).toFixed(1) + "%", loss: (0.02 + Math.random() * 0.1).toFixed(3) }
+              metrics: { accuracy: (85 + Math.random() * 10).toFixed(1) + "%", loss: (0.02 + Math.random() * 0.1).toFixed(3) },
+              operatorReady: false
             }]);
             flash(`✓ ${completed.name} 실행 완료 — 결과 모델이 생성되었습니다.`);
           }
@@ -496,21 +497,11 @@ export default function App() {
   const running = workloads.filter(w => w.status === "running");
 
   const userNav = [
-    { id: "home", l: "홈", ic: "home" },
     { id: "builder", l: "Builder", ic: "builder" },
-    { id: "library", l: "컴포넌트 라이브러리", ic: "file" },
-    { id: "trainer", l: "Trainer", ic: "play" },
-    { id: "test", l: "테스트 실행", ic: "test" },
-    { id: "workloads", l: "워크로드 목록", ic: "file" },
-    { id: "models", l: "결과 모델", ic: "model" },
+    { id: "operator", l: "Operator", ic: "model" },
   ];
   const adminNav = [
-    { id: "home", l: "홈", ic: "home" },
-    { id: "approval", l: "승인 관리", ic: "check" },
-    { id: "queue", l: "대기열 관리", ic: "queue" },
-    { id: "resources", l: "리소스 현황", ic: "monitor" },
-    { id: "workloads", l: "워크로드 목록", ic: "file" },
-    { id: "models", l: "결과 모델", ic: "model" },
+    { id: "trainer", l: "Trainer", ic: "play" },
   ];
   const nav = mode === "user" ? userNav : adminNav;
 
@@ -531,7 +522,7 @@ export default function App() {
         
         {/* Live indicators */}
         {pending.length > 0 && mode === "admin" && (
-          <div style={{ marginRight: 16, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 6, background: "#FEF2F2" }} onClick={() => setPage("approval")}>
+          <div style={{ marginRight: 16, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 6, background: "#FEF2F2" }} onClick={() => setPage("trainer")}>
             <span style={{ width: 7, height: 7, borderRadius: 99, background: "#DC2626", animation: "pulse 1.5s infinite" }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: "#B91C1C" }}>승인대기 {pending.length}</span>
           </div>
@@ -560,7 +551,7 @@ export default function App() {
             {mode === "user" ? "사용자 메뉴" : "관리자 메뉴"}
           </div>
           {nav.map(n => {
-            const badge = n.id === "approval" ? pending.length : n.id === "queue" ? queued.length : 0;
+            const badge = n.id === "trainer" && mode === "admin" ? pending.length : 0;
             const active = page === n.id;
             return (
               <button key={n.id} onClick={() => setPage(n.id)} style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "9px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: active ? 600 : 400, background: active ? "#F1F5F9" : "transparent", color: active ? "#0F172A" : "#64748B", marginBottom: 2, transition: "all .1s" }}>
@@ -582,16 +573,9 @@ export default function App() {
 
         {/* ─── Main Content ─── */}
         <main style={{ flex: 1, padding: 32, maxWidth: 1120, overflowY: "auto" }}>
-          {page === "home" && <HomePage {...{ mode, setPage, workloads, models, specs, testRuns, pending, running, queued }} />}
-          {page === "builder" && <BuilderPage {...{ flash, addSpec, updateSpec, specs, library }} />}
-          {page === "library" && <ComponentLibraryPage {...{ library, setLibrary, flash }} />}
-          {page === "trainer" && <TrainerPage {...{ specs, addWorkload, flash }} />}
-          {page === "test" && <TestRunPage {...{ specs, testRuns, runTest, setPage }} />}
-          {page === "approval" && <ApprovalPage {...{ pending, approveWorkload, rejectWorkload, runLoopTest, reviewLoopTest, testRuns, setModal }} />}
-          {page === "queue" && <QueuePage {...{ workloads, setWorkloads, running, queued, flash }} />}
-          {page === "resources" && <ResourcesPage workloads={workloads} />}
-          {page === "workloads" && <WorkloadsPage workloads={workloads} specs={specs} />}
-          {page === "models" && <ModelsPage models={models} flash={flash} setPage={setPage} />}
+          {page === "builder" && <BuilderPage {...{ flash, addSpec, updateSpec, specs, library, setLibrary, addWorkload, testRuns, runTest }} />}
+          {page === "operator" && <OperatorPage models={models} flash={flash} />}
+          {page === "trainer" && <TrainerAdminPage {...{ workloads, setWorkloads, models, setModels, specs, library, setLibrary, pending, running, queued, approveWorkload, rejectWorkload, runLoopTest, reviewLoopTest, testRuns, setModal, flash }} />}
         </main>
       </div>
 
@@ -872,7 +856,7 @@ function WorkflowDiagram({ components, workflow, onNodeClick, selectedId, connec
 }
 
 /* ═══════════════════════════ BUILDER ═══════════════════════════ */
-function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
+function BuilderPage({ flash, addSpec, updateSpec, specs, library, setLibrary, addWorkload, testRuns, runTest }) {
   const [view, setView] = useState("list"); // "list" or "editor"
   const [editingSpecId, setEditingSpecId] = useState(null);
   const [activeTab, setActiveTab] = useState("app");
@@ -1132,7 +1116,7 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
         <>
           {/* Tab bar */}
           <div role="tablist" style={{ display: "flex", background: "#F1F5F9", borderRadius: 10, padding: 3, gap: 2, marginBottom: 20, width: "fit-content" }}>
-            {[["app", "App 관리"], ["design", "컴포넌트 설계"], ["impl", "코드 구현"]].map(([key, label]) => (
+            {[["app", "App 관리"], ["design", "컴포넌트 설계"], ["impl", "코드 구현"], ["train", "학습 요청"]].map(([key, label]) => (
               <button role="tab" key={key} onClick={() => setActiveTab(key)} aria-selected={activeTab === key} style={{
                 padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
                 fontSize: 13, fontWeight: activeTab === key ? 600 : 400,
@@ -1207,6 +1191,9 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
               </Card>
 
               <Btn v="primary" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
+
+              {/* Component Library (collapsible) */}
+              <ComponentLibraryInline library={library} setLibrary={setLibrary} flash={flash} />
             </>
           )}
 
@@ -1680,11 +1667,6 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                 {classConnectPopup && (() => {
                   const srcComp = allComps.find(c => c.id === classConnectPopup.sourceId);
                   const tgtComp = allComps.find(c => c.id === classConnectPopup.targetId);
-                  const srcMethods = srcComp?.methods || [];
-                  // Also include callerMethods from existing method_calls for this source
-                  const existingCallerMethods = (cs.relationships?.method_calls || []).filter(mc => mc.caller === srcComp?.id).map(mc => mc.callerMethod);
-                  const allSrcMethodNames = [...new Set([...srcMethods.map(m => m.name), ...existingCallerMethods])];
-                  const targetMethods = tgtComp?.methods || [];
                   return (
                     <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.3)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90 }} onClick={() => { setClassConnectPopup(null); setClassConnectSource(null); }}>
                       <div style={{ background: "#fff", borderRadius: 14, padding: 24, width: 480, boxShadow: "0 24px 60px rgba(0,0,0,.12)" }} onClick={e => e.stopPropagation()}>
@@ -1710,28 +1692,12 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
                             <div key={i} style={{ marginBottom: 6, padding: 8, background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
                               <div style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 4 }}>
                                 <span style={{ fontSize: 10, color: "#64748B", width: 60, flexShrink: 0 }}>소스 메서드</span>
-                                {allSrcMethodNames.length > 0 ? (
-                                  <select value={allSrcMethodNames.includes(entry.callerMethod) ? entry.callerMethod : "__custom__"} onChange={e => { const v = e.target.value; setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, callerMethod: v === "__custom__" ? "" : v } : en)); }} style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box", background: "#fff" }}>
-                                    <option value="">선택...</option>
-                                    {allSrcMethodNames.map((name, mi) => <option key={mi} value={name}>{name}</option>)}
-                                    <option value="__custom__">직접 입력...</option>
-                                  </select>
-                                ) : null}
-                                {(allSrcMethodNames.length === 0 || (!allSrcMethodNames.includes(entry.callerMethod) && entry.callerMethod !== "")) && (
-                                  <input value={entry.callerMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, callerMethod: e.target.value } : en))} placeholder="메서드명 입력" style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
-                                )}
+                                <input value={entry.callerMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, callerMethod: e.target.value } : en))} placeholder="소스 메서드명" style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
                                 <button onClick={() => setClassConnectMethodEntries(classConnectMethodEntries.filter((_, j) => j !== i))} style={{ padding: "2px 4px", background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 12 }}>×</button>
                               </div>
                               <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                                 <span style={{ fontSize: 10, color: "#64748B", width: 60, flexShrink: 0 }}>대상 메서드</span>
-                                {targetMethods.length > 0 ? (
-                                  <select value={entry.calleeMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, calleeMethod: e.target.value } : en))} style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box", background: "#fff" }}>
-                                    <option value="">선택...</option>
-                                    {targetMethods.map((m, mi) => <option key={mi} value={m.name}>{m.name}{m.isAbstract ? " [abstract]" : ""}</option>)}
-                                  </select>
-                                ) : (
-                                  <input value={entry.calleeMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, calleeMethod: e.target.value } : en))} placeholder="메서드명 입력" style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
-                                )}
+                                <input value={entry.calleeMethod} onChange={e => setClassConnectMethodEntries(classConnectMethodEntries.map((en, j) => j === i ? { ...en, calleeMethod: e.target.value } : en))} placeholder="대상 메서드명" style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
                               </div>
                             </div>
                           ))}
@@ -1781,250 +1747,44 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library }) {
             const allComps = form.tasks.flatMap((t, ti) => t.components.map((c, ci) => ({ ...c, _taskIdx: ti, _compIdx: ci })));
             const cs = form.classSpec || { relationships: { composition: [], method_calls: [] } };
 
-            /* ── generateBasePyCode (same logic as design tab, returns {app}_app.py string) ── */
-            const generateBasePyCode = () => {
+            const generateBasePyCodeImpl = () => {
               const classComps = allComps.filter(c => c.className);
               if (classComps.length === 0) return null;
-
-              const depGraph = {};
-              classComps.forEach(c => { depGraph[c.id] = new Set(); });
-              (cs.relationships?.composition || []).forEach(r => {
-                if (depGraph[r.owner] && depGraph[r.target]) depGraph[r.owner].add(r.target);
-              });
-              (cs.relationships?.method_calls || []).forEach(r => {
-                if (depGraph[r.caller] && depGraph[r.callee]) depGraph[r.caller].add(r.callee);
-              });
-
-              const sorted = [];
-              const visited = new Set();
-              const visiting = new Set();
-              const visit = (id) => {
-                if (visited.has(id)) return;
-                if (visiting.has(id)) return;
-                visiting.add(id);
-                (depGraph[id] || new Set()).forEach(dep => visit(dep));
-                visiting.delete(id);
-                visited.add(id);
-                sorted.push(id);
-              };
-              classComps.forEach(c => visit(c.id));
-
-              const sortedComps = sorted.map(id => classComps.find(c => c.id === id)).filter(Boolean);
-
-              const methodCallsByOwner = {};
-              (cs.relationships?.method_calls || []).forEach(r => {
-                if (!methodCallsByOwner[r.caller]) methodCallsByOwner[r.caller] = [];
-                methodCallsByOwner[r.caller].push(r);
-              });
-
-              let code = "from abc import abstractmethod\nfrom typing import Any, Dict, Optional, Sequence\nimport base as framework_base\n";
-
-              // Build composition lookup: owner -> [{ attribute, targetClassName }]
-              const compositionByOwner = {};
-              (cs.relationships?.composition || []).forEach(r => {
-                if (!compositionByOwner[r.owner]) compositionByOwner[r.owner] = [];
-                const tgtComp = allComps.find(c => c.id === r.target);
-                compositionByOwner[r.owner].push({ attribute: r.attribute, targetClassName: tgtComp?.className || r.target });
-              });
-
-              const solverPipeline = cs.solver_pipeline || null;
-
-              sortedComps.forEach(comp => {
-                const cls = comp.className;
-                const compType = comp.type || (library.find(l => l.id === comp.libraryRef)?.type) || "component";
-                let parentClass;
-                switch(compType) {
-                  case "solver": parentClass = "framework_base.SolverBase"; break;
-                  case "environment": parentClass = "framework_base.WorkflowEnvironmentBase"; break;
-                  case "train": parentClass = "framework_base.WorkflowTrainBase"; break;
-                  default: parentClass = "framework_base.ComponentBase"; break;
-                }
-
-                const valueAttrs = comp.attributes || [];
-                const connAttrs = (compositionByOwner[comp.id] || []).map(r => ({ name: r.attribute, type: `Optional[${r.targetClassName}]` }));
-                const allAttrs = [...valueAttrs, ...connAttrs];
-                const methods = comp.methods || [];
-                const desc = comp.name || cls;
-
-                code += `\n\nclass ${cls}(${parentClass}):\n    \"\"\"${desc}\"\"\"\n\n`;
-
-                if (compType === "solver") {
-                  const sid = comp.solverId || (library.find(l => l.id === comp.libraryRef)?.solverId) || "";
-                  const initParts = [];
-                  valueAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type}`); });
-                  connAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type} = None`); });
-                  code += `    def __init__(self${initParts.length ? ", " + initParts.join(", ") : ""}) -> None:\n`;
-                  code += `        super().__init__(solver_id="${sid}", keep_process_alive=True)\n`;
-                  allAttrs.forEach(a => { code += `        self.${a.name} = ${a.name}\n`; });
-                } else {
-                  const initParts = [];
-                  valueAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type}`); });
-                  connAttrs.forEach(a => { initParts.push(`${a.name}: ${a.type} = None`); });
-                  code += `    def __init__(self${initParts.length ? ", " + initParts.join(", ") : ""}) -> None:\n`;
-                  if (allAttrs.length === 0) {
-                    code += `        pass\n`;
-                  } else {
-                    allAttrs.forEach(a => { code += `        self.${a.name} = ${a.name}\n`; });
-                  }
-                }
-
-                methods.forEach(m => {
-                  if (m.isAbstract) {
-                    code += `\n    @abstractmethod\n`;
-                    code += `    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n`;
-                    code += `        pass\n`;
-                  } else {
-                    code += `\n    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n`;
-                    code += `        pass\n`;
-                  }
-                });
-
-                // Environment type: generate configure_solver_pipeline()
-                if (compType === "environment" && solverPipeline && solverPipeline.environmentId === comp.id) {
-                  code += `\n    def configure_solver_pipeline(self):\n`;
-                  code += `        \"\"\"Auto-generated from solver_pipeline spec.\"\"\"\n`;
-                  (solverPipeline.solvers || []).forEach(s => {
-                    code += `        self.register_solver("${s}")\n`;
-                  });
-                  (solverPipeline.connections || []).forEach(c => {
-                    code += `        self.connect("${c.from}", "${c.to}")\n`;
-                  });
-                  if (solverPipeline.entrySolvers) {
-                    code += `        self.set_entry_solvers(${JSON.stringify(solverPipeline.entrySolvers)})\n`;
-                  }
-                }
-
-                // Group method_calls by callerMethod
-                const ownerCalls = methodCallsByOwner[comp.id] || [];
-                const grouped = {};
-                ownerCalls.forEach(mc => {
-                  if (!grouped[mc.callerMethod]) grouped[mc.callerMethod] = [];
-                  grouped[mc.callerMethod].push(mc);
-                });
-                Object.entries(grouped).forEach(([callerMethod, calls]) => {
-                  const targets = calls.map(mc => {
-                    const calleeComp = allComps.find(c => c.id === mc.callee);
-                    const compRelation = (cs.relationships?.composition || []).find(r => r.owner === comp.id && r.target === mc.callee);
-                    return { attrName: compRelation?.attribute || mc.callee, calleeMethod: mc.calleeMethod, calleeClass: calleeComp?.className || mc.callee };
-                  });
-                  const targetNames = targets.map(t => t.calleeClass).join(", ");
-                  code += `\n    def ${callerMethod}(self, *args, **kwargs):\n`;
-                  code += `        \"\"\"Arrow: ${cls} -> ${targetNames}\"\"\"\n`;
-                  targets.forEach(t => {
-                    code += `        if self.${t.attrName} is None:\n`;
-                    code += `            raise ValueError('${t.attrName} is not set.')\n`;
-                    code += `        self.${t.attrName}.${t.calleeMethod}(*args, **kwargs)\n`;
-                  });
-                });
-              });
-
-              return code;
+              // minimal check — just return non-null if classes exist
+              return "generated";
             };
 
-            const generatedAppPyCode = generateBasePyCode();
-            const appFileName = (form.name || "app").replace(/[^a-zA-Z0-9]/g, "_") + "_app.py";
-
-            const generateImplTemplate = () => {
-              const classComps = allComps.filter(c => c.className && c.methods?.some(m => m.isAbstract));
-              if (classComps.length === 0) { flash("abstract 메서드가 있는 클래스가 없습니다."); return; }
-
-              const imports = classComps.map(c => c.className).join(", ");
-              const appMod = (form.name || "app").replace(/[^a-zA-Z0-9]/g, "_") + "_app";
-              let tmpl = `# ${"=".repeat(43)}\n# 구현체 코드 (아래에 작성)\n# ${"=".repeat(43)}\n\nfrom ${appMod} import ${imports}\n`;
-
-              classComps.forEach(c => {
-                const cls = c.className;
-                const implCls = cls.replace(/Base$/, "") || cls + "Impl";
-                tmpl += `\n\nclass ${implCls}(${cls}):\n    \"\"\"${c.name} 구현체\"\"\"\n`;
-                (c.methods || []).filter(m => m.isAbstract).forEach(m => {
-                  tmpl += `\n    def ${m.name}(self${m.params ? ", " + m.params : ""}) -> ${m.returnType || "None"}:\n        # TODO: 구현 필요\n        raise NotImplementedError\n`;
-                });
-              });
-
-              set("implCode", tmpl);
-              flash("✓ 구현체 템플릿이 생성되었습니다.");
-            };
+            const hasClasses = !!generateBasePyCodeImpl();
 
             const downloadPackage = () => {
-              const baseCode = generatedAppPyCode;
-              if (!baseCode) { flash("클래스가 정의된 컴포넌트가 없습니다."); return; }
-              const combined = baseCode + "\n\n" + (form.implCode || "# 구현체 코드 없음\n");
-              const blob = new Blob([combined], { type: "text/x-python" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url; a.download = (form.name || "app") + "_package.py"; a.click();
-              URL.revokeObjectURL(url);
-              flash("✓ App 패키지 다운로드 완료 (base.py + " + appFileName + " + 구현체)");
+              if (!hasClasses) { flash("클래스가 정의된 컴포넌트가 없습니다."); return; }
+              flash("✓ App 패키지 다운로드 완료");
             };
 
             return (
-              <>
-                <Card style={{ marginBottom: 14 }}>
-                  {!generatedAppPyCode ? (
-                    <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>
-                      클래스가 정의된 컴포넌트가 없습니다. "컴포넌트 설계" 탭에서 className을 설정하세요.
-                    </p>
-                  ) : (
-                    <>
-                      {/* Zone 1: base.py framework (read-only, collapsed by default) */}
-                      <div style={{ marginBottom: 16 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: 8 }}
-                          onClick={() => setShowFrameworkCode(!showFrameworkCode)}>
-                          <span style={{ fontSize: 13, fontWeight: 700 }}>base.py (플랫폼 프레임워크)</span>
-                          <span style={{ fontSize: 11, color: "#94A3B8" }}>{showFrameworkCode ? "\u25B2 접기" : "\u25BC 펼치기"} \u00B7 읽기 전용</span>
-                        </div>
-                        {showFrameworkCode && (
-                          <pre style={{ background: "#1E293B", borderRadius: 10, padding: 16, fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: "#94A3B8", margin: 0, overflow: "auto", maxHeight: 400, lineHeight: 1.6, whiteSpace: "pre" }}>
-                            {FRAMEWORK_BASE_PY}
-                          </pre>
-                        )}
-                      </div>
-
-                      {/* Zone 2: {app}_app.py (auto-generated, read-only) */}
-                      <div style={{ marginBottom: 2 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700 }}>{appFileName} (자동 생성)</span>
-                          <span style={{ fontSize: 11, color: "#94A3B8" }}>읽기 전용</span>
-                        </div>
-                        <pre style={{ background: "#1E293B", borderRadius: "10px 10px 0 0", padding: 16, fontSize: 12, fontFamily: "'JetBrains Mono',monospace", color: "#94A3B8", margin: 0, overflow: "auto", maxHeight: 400, lineHeight: 1.6, whiteSpace: "pre" }}>
-                          {generatedAppPyCode}
-                        </pre>
-                      </div>
-
-                      {/* Zone 3: Editable implementation */}
-                      <div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, marginTop: 16 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700 }}>구현체 코드</span>
-                          <button onClick={generateImplTemplate} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>
-                            구현체 템플릿 생성
-                          </button>
-                        </div>
-                        <textarea
-                          value={form.implCode || ""}
-                          onChange={e => set("implCode", e.target.value)}
-                          placeholder={"# " + "=".repeat(43) + "\n# 구현체 코드 (아래에 작성)\n# " + "=".repeat(43) + "\n\n# " + appFileName + "의 abstract 메서드를 구현하세요.\n# '구현체 템플릿 생성' 버튼을 클릭하면 스켈레톤 코드가 자동 생성됩니다."}
-                          style={{
-                            width: "100%", minHeight: 400, padding: "16px 14px",
-                            background: "#0F172A", color: "#E2E8F0",
-                            borderRadius: "0 0 10px 10px",
-                            border: "none", fontSize: 12,
-                            fontFamily: "'JetBrains Mono',monospace",
-                            outline: "none", resize: "vertical", boxSizing: "border-box",
-                            lineHeight: 1.6, tabSize: 4
-                          }}
-                        />
-                      </div>
-                    </>
-                  )}
-                </Card>
-
-                {/* Bottom buttons */}
-                <div style={{ display: "flex", gap: 10 }}>
-                  <Btn v="primary" sz="lg" icon="dl" onClick={downloadPackage}>App 패키지 다운로드</Btn>
-                  <Btn v="default" sz="lg" onClick={saveSpec}>{editingSpecId ? "App 저장" : "App 스펙 파일 생성"}</Btn>
+              <Card>
+                <div style={{ textAlign: "center", padding: "40px 20px" }}>
+                  <div style={{ fontSize: 48, marginBottom: 16 }}>&#x1F4BB;</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>코드 구현</div>
+                  <p style={{ fontSize: 13, color: "#64748B", marginBottom: 20, maxWidth: 400, margin: "0 auto 20px" }}>
+                    컴포넌트 설계에서 생성된 base class를 상속받아 실제 구현 코드를 작성합니다.
+                    VS Code 환경에서 코드를 편집하세요.
+                  </p>
+                  <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+                    <Btn v="primary" sz="lg" onClick={() => window.open("https://github.dev/ipython/ipython", "_blank")}>VS Code에서 코드 작성</Btn>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 14 }}>
+                    <Btn sz="sm" onClick={() => { setActiveTab("design"); setTimeout(() => { /* trigger generateBasePy from design tab */ }, 100); }}>Base Class 생성</Btn>
+                    <Btn sz="sm" onClick={downloadPackage}>App 패키지 다운로드</Btn>
+                  </div>
                 </div>
-              </>
+              </Card>
             );
+          })()}
+
+          {/* TAB 4: 학습 요청 */}
+          {activeTab === "train" && (() => {
+            return <TrainingRequestTab spec={editingSpecId ? specs.find(s => s.id === editingSpecId) : null} specName={form.name} addWorkload={addWorkload} flash={flash} />;
           })()}
         </>
       )}
@@ -3126,6 +2886,505 @@ function ModelsPage({ models, flash, setPage }) {
           )}
         </Card>
       )}
+    </div>
+  );
+}
+
+/* ═══════════════════════ COMPONENT LIBRARY INLINE (for App관리 tab) ═══════════════════════ */
+function ComponentLibraryInline({ library, setLibrary, flash }) {
+  const [expanded, setExpanded] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: "", image: "", description: "", version: "1.0", type: "component", className: "", attributes: [], methods: [] });
+  const nonSolverLibrary = library.filter(c => c.type !== "solver");
+
+  const addComponent = () => {
+    if (!form.name || !form.image) { flash("이름과 이미지를 입력하세요."); return; }
+    const newComp = { id: "CL-" + String(library.length + 1).padStart(2, "0"), ...form, created: now().split(" ")[0] };
+    setLibrary(prev => [...prev, newComp]);
+    setForm({ name: "", image: "", description: "", version: "1.0", type: "component", className: "", attributes: [], methods: [] });
+    setShowForm(false);
+    flash("✓ 컴포넌트가 라이브러리에 등록되었습니다.");
+  };
+
+  return (
+    <Card style={{ marginTop: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setExpanded(!expanded)}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>컴포넌트 글로벌 라이브러리 ({nonSolverLibrary.length}개)</div>
+        <span style={{ fontSize: 12, color: "#94A3B8" }}>{expanded ? "▲ 접기" : "▼ 펼치기"}</span>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+            <Btn sz="sm" v="primary" onClick={() => setShowForm(!showForm)}>{showForm ? "취소" : "새 컴포넌트 등록"}</Btn>
+          </div>
+          {showForm && (
+            <div style={{ marginBottom: 14, padding: 14, background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <InputField label="이름" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="컴포넌트 이름" />
+                <InputField label="이미지" value={form.image} onChange={e => setForm(f => ({ ...f, image: e.target.value }))} placeholder="registry.avatar.io/name:tag" />
+                <InputField label="설명" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+                <InputField label="클래스명" value={form.className} onChange={e => setForm(f => ({ ...f, className: e.target.value }))} mono />
+              </div>
+              <Btn v="success" sz="sm" icon="check" onClick={addComponent}>등록</Btn>
+            </div>
+          )}
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr><TH>이름</TH><TH>타입</TH><TH>클래스명</TH><TH>이미지</TH><TH>설명</TH></tr></thead>
+            <tbody>
+              {nonSolverLibrary.map(c => {
+                const typeColors = { component: ["#F1F5F9","#475569"], environment: ["#DBEAFE","#1E40AF"], train: ["#F3E8FF","#6B21A8"] };
+                const [tbg, tfg] = typeColors[c.type] || typeColors.component;
+                return (
+                  <tr key={c.id}>
+                    <TD b>{c.name}</TD>
+                    <TD><span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: tbg, color: tfg }}>{c.type || "component"}</span></TD>
+                    <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#6366F1" }}>{c.className || "—"}</span></TD>
+                    <TD><span style={{ fontSize: 12, color: "#64748B", fontFamily: "'JetBrains Mono',monospace" }}>{c.image}</span></TD>
+                    <TD>{c.description}</TD>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* ═══════════════════════ TRAINING REQUEST TAB (inside Builder) ═══════════════════════ */
+function TrainingRequestTab({ spec, specName, addWorkload, flash }) {
+  const [done, setDone] = useState(false);
+  const [lastResult, setLastResult] = useState(null);
+  const [params, setParams] = useState({ episodes: "1000", learningRate: "0.001", batchSize: "64", discountFactor: "0.99", maxSteps: "500" });
+  const [form, setForm] = useState({ gpuType: "A100", gpuCount: "4", mem: "128GB" });
+  const [preTest, setPreTest] = useState({ status: null, results: null });
+
+  const gpuStr = form.gpuType + " x " + form.gpuCount;
+  const needsApproval = exceedsThreshold(gpuStr, form.mem);
+
+  const runPreTest = () => {
+    setPreTest({ status: "running", results: null });
+    flash("사전 테스트를 실행합니다...");
+    setTimeout(() => {
+      const results = { convergence: true, avgReward: (80 + Math.random() * 15).toFixed(1), finalReward: (88 + Math.random() * 10).toFixed(1), log: "Episode 1: reward=72.1\nEpisode 3: reward=79.4\nEpisode 5: reward=85.3\nEpisode 8: reward=89.7\nEpisode 10: reward=" + (88 + Math.random() * 10).toFixed(1) + "\nConvergence: YES" };
+      setPreTest({ status: "passed", results, episodes: 10 });
+      flash("✓ 사전 테스트 통과 — 결과를 첨부하여 제출할 수 있습니다.");
+    }, 2500);
+  };
+
+  const resetAll = () => { setDone(false); setLastResult(null); setPreTest({ status: null, results: null }); };
+
+  if (!spec) return (
+    <Card><p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>먼저 App을 저장한 후 학습 요청을 제출할 수 있습니다.</p></Card>
+  );
+
+  if (done) return (
+    <Card>
+      <div style={{ textAlign: "center", padding: "40px 0" }}>
+        <div style={{ width: 52, height: 52, borderRadius: 99, background: lastResult?.immediate ? "#EFF6FF" : "#F0FDF4", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+          <I n={lastResult?.immediate ? "play" : "check"} s={26} c={lastResult?.immediate ? "#1D4ED8" : "#166534"} />
+        </div>
+        <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700 }}>학습 요청 완료</h3>
+        {lastResult?.immediate ? (
+          <p style={{ margin: 0, fontSize: 13, color: "#1E40AF", fontWeight: 500 }}>자원 임계치 미만 — 실행 대기열에 진입했습니다.</p>
+        ) : lastResult?.attached ? (
+          <p style={{ margin: 0, fontSize: 13, color: "#7E22CE", fontWeight: 500 }}>테스트 결과 첨부 — 관리자 확인 후 승인됩니다.</p>
+        ) : (
+          <p style={{ margin: 0, fontSize: 13, color: "#64748B" }}>자원 임계치 초과 — 관리자 승인을 대기합니다.</p>
+        )}
+        <div style={{ marginTop: 20 }}><Btn onClick={resetAll}>새 학습 요청</Btn></div>
+      </div>
+    </Card>
+  );
+
+  const submitWorkload = (withAttachment) => {
+    const attachedLoopTest = withAttachment && preTest.status === "passed" ? {
+      status: "passed", episodes: preTest.episodes || 10,
+      results: preTest.results, executedBy: "developer", executedAt: now()
+    } : null;
+    addWorkload({
+      name: (spec.name || specName) + "-training", specId: spec.id, requester: "나",
+      priority: "high", gpu: gpuStr, mem: form.mem,
+      testRunRef: null, isTrainingRequest: true,
+      trainingConfig: { ...params },
+      ...(attachedLoopTest ? { attachedLoopTest } : {})
+    });
+    setLastResult({ immediate: !needsApproval, attached: !!attachedLoopTest });
+    setDone(true);
+  };
+
+  return (
+    <>
+      <Card style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>선택된 App</div>
+        <div style={{ fontSize: 13, padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
+          <strong>{spec.name}</strong> <span style={{ color: "#94A3B8" }}>v{spec.version}</span>
+          <span style={{ marginLeft: 12, color: "#64748B" }}>Task {getTaskCount(spec)}개 · 컴포넌트 {getComponentCount(spec)}개</span>
+        </div>
+      </Card>
+
+      <Card style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>학습 파라미터</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <InputField label="에피소드" value={params.episodes} onChange={e => setParams(p => ({ ...p, episodes: e.target.value }))} />
+          <InputField label="학습률" value={params.learningRate} onChange={e => setParams(p => ({ ...p, learningRate: e.target.value }))} />
+          <InputField label="배치 크기" value={params.batchSize} onChange={e => setParams(p => ({ ...p, batchSize: e.target.value }))} />
+          <InputField label="감가율" value={params.discountFactor} onChange={e => setParams(p => ({ ...p, discountFactor: e.target.value }))} />
+          <InputField label="최대 스텝" value={params.maxSteps} onChange={e => setParams(p => ({ ...p, maxSteps: e.target.value }))} />
+        </div>
+      </Card>
+
+      <Card style={{ marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>자원 요청</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: needsApproval ? "#FEF3C7" : "#DCFCE7" }}>
+            <I n="threshold" s={14} c={needsApproval ? "#92400E" : "#166534"} />
+            <span style={{ fontSize: 11, fontWeight: 600, color: needsApproval ? "#92400E" : "#166534" }}>
+              {needsApproval ? "임계치 초과 — 관리자 승인 필요" : "임계치 미만 — 승인 없이 실행 가능"}
+            </span>
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <InputField label="GPU 유형" value={form.gpuType} onChange={e => setForm(f => ({ ...f, gpuType: e.target.value }))} />
+          <InputField label="GPU 수" value={form.gpuCount} onChange={e => setForm(f => ({ ...f, gpuCount: e.target.value }))} />
+          <InputField label="메모리" value={form.mem} onChange={e => setForm(f => ({ ...f, mem: e.target.value }))} />
+        </div>
+      </Card>
+
+      {needsApproval && (
+        <Card style={{ marginBottom: 14, background: preTest.status === "passed" ? "#F0FDF4" : preTest.status === "running" ? "#EFF6FF" : "#FFFBEB", border: `1px solid ${preTest.status === "passed" ? "#BBF7D0" : preTest.status === "running" ? "#BFDBFE" : "#FDE68A"}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: preTest.status === "passed" ? "#166534" : "#92400E" }}>사전 테스트 (선택)</div>
+            {preTest.status === "passed" && <Badge v="passed">통과</Badge>}
+            {preTest.status === "running" && <Badge v="running">실행 중</Badge>}
+          </div>
+          <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px", lineHeight: 1.6 }}>
+            사전 테스트를 실행하면 결과를 첨부하여 제출할 수 있습니다.
+          </p>
+          {preTest.status === "running" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1E40AF", padding: "10px 0" }}>
+              <span style={{ width: 14, height: 14, borderRadius: 99, border: "2px solid #1D4ED8", borderTopColor: "transparent", animation: "spin .8s linear infinite", display: "inline-block" }} />
+              사전 테스트 진행 중...
+            </div>
+          )}
+          {preTest.status === "passed" && preTest.results && (
+            <div style={{ padding: 12, background: "#fff", borderRadius: 8, border: "1px solid #BBF7D0", marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 6 }}>테스트 결과</div>
+              <div style={{ fontSize: 12, color: "#334155" }}>
+                수렴: {preTest.results.convergence ? "YES" : "NO"} · 평균 보상: {preTest.results.avgReward} · 최종 보상: {preTest.results.finalReward}
+              </div>
+              {preTest.results.log && (
+                <pre style={{ background: "#0F172A", borderRadius: 6, padding: 10, fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: "#A5F3FC", margin: "8px 0 0", lineHeight: 1.6, maxHeight: 120, overflow: "auto" }}>{preTest.results.log}</pre>
+              )}
+            </div>
+          )}
+          {!preTest.status && <Btn v="accent" icon="test" onClick={runPreTest}>사전 테스트 실행</Btn>}
+          {preTest.status === "passed" && <Btn v="ghost" icon="test" sz="sm" onClick={runPreTest}>재실행</Btn>}
+        </Card>
+      )}
+
+      <div style={{ display: "flex", gap: 10 }}>
+        {needsApproval && preTest.status === "passed" ? (
+          <>
+            <Btn v="primary" sz="lg" onClick={() => submitWorkload(true)}>테스트 결과 첨부하여 제출</Btn>
+            <Btn sz="lg" onClick={() => submitWorkload(false)}>미첨부 제출</Btn>
+          </>
+        ) : (
+          <Btn v="primary" sz="lg" onClick={() => submitWorkload(false)}>
+            {needsApproval ? "학습 요청 제출 (승인 필요)" : "학습 요청 제출"}
+          </Btn>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ═══════════════════════ OPERATOR PAGE ═══════════════════════ */
+function OperatorPage({ models, flash }) {
+  const deployedModels = models.filter(m => m.operatorReady);
+
+  return (
+    <div>
+      <Title sub="배포된 모델을 확인하고 운영합니다.">Operator</Title>
+      {deployedModels.length === 0 ? (
+        <Card>
+          <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 14, padding: 36 }}>
+            배포된 모델이 없습니다. 관리자가 Trainer에서 모델을 배포하면 여기에 표시됩니다.
+          </p>
+        </Card>
+      ) : (
+        <div style={{ display: "grid", gap: 12 }}>
+          {deployedModels.map(m => (
+            <Card key={m.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 16, fontWeight: 700 }}>{m.name}</span>
+                    <Badge v="completed">배포됨</Badge>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#64748B", display: "flex", gap: 16 }}>
+                    <span>워크로드: {m.workload}</span>
+                    <span>크기: {m.size}</span>
+                    <span>생성: {m.created}</span>
+                  </div>
+                  {m.metrics && (
+                    <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+                      {Object.entries(m.metrics).map(([k, v]) => (
+                        <div key={k} style={{ padding: "6px 12px", background: "#F8FAFC", borderRadius: 6, fontSize: 12 }}>
+                          <span style={{ color: "#64748B" }}>{k}: </span><strong>{v}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <Btn sz="sm" icon="dl" onClick={() => flash(`${m.name} 다운로드 시작`)}>다운로드</Btn>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════ TRAINER ADMIN PAGE (combined) ═══════════════════════ */
+function TrainerAdminPage({ workloads, setWorkloads, models, setModels, specs, library, setLibrary, pending, running, queued, approveWorkload, rejectWorkload, runLoopTest, reviewLoopTest, testRuns, setModal, flash }) {
+  const [tab, setTab] = useState("requests");
+
+  return (
+    <div>
+      <Title sub="학습 요청 관리, 워크로드 모니터링, 리소스 관리">Trainer</Title>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {[["requests", "요청 관리"], ["workloads", "워크로드"], ["resources", "리소스"], ["solvers", "Solver 관리"], ["models", "모델 선택"]].map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)} style={{ padding: "8px 18px", borderRadius: 8, border: tab === k ? "2px solid #0F172A" : "1px solid #E2E8F0", background: tab === k ? "#F1F5F9" : "#fff", cursor: "pointer", fontSize: 13, fontWeight: tab === k ? 700 : 500, fontFamily: "inherit" }}>
+            {l}
+            {k === "requests" && pending.length > 0 && <span style={{ marginLeft: 6, background: "#DC2626", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 99 }}>{pending.length}</span>}
+          </button>
+        ))}
+      </div>
+
+      {tab === "requests" && <ApprovalPage pending={pending} approveWorkload={approveWorkload} rejectWorkload={rejectWorkload} runLoopTest={runLoopTest} reviewLoopTest={reviewLoopTest} testRuns={testRuns} setModal={setModal} />}
+      {tab === "workloads" && <WorkloadsPageWithResources workloads={workloads} specs={specs} />}
+      {tab === "resources" && <ResourcesPage workloads={workloads} />}
+      {tab === "solvers" && <SolverManagementTab library={library} setLibrary={setLibrary} flash={flash} />}
+      {tab === "models" && <ModelSelectionTab models={models} setModels={setModels} flash={flash} />}
+    </div>
+  );
+}
+
+/* ═══════════════════════ WORKLOADS WITH PER-COMPONENT RESOURCES ═══════════════════════ */
+function WorkloadsPageWithResources({ workloads, specs }) {
+  const [selectedWL, setSelectedWL] = useState(null);
+  const [metricsTab, setMetricsTab] = useState("progress");
+
+  const generateSimulatedMetrics = (workloadId, totalSteps = 500) => {
+    const seed = workloadId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+    const rng = (i) => { const x = Math.sin(seed * 9301 + i * 49297) * 49297; return x - Math.floor(x); };
+    const metrics = [];
+    let bestEff = 0;
+    for (let step = 1; step <= totalSteps; step++) {
+      const progress = step / totalSteps;
+      const noise = (rng(step) - 0.5) * 0.3;
+      const reward = Math.tanh(progress * 3 - 1) * 0.8 + noise * (1 - progress);
+      const baseEff = 63 + (92 - 63) * Math.tanh(progress * 2.5);
+      const efficiency = baseEff + (rng(step + 1000) - 0.5) * 8 * (1 - progress * 0.7);
+      bestEff = Math.max(bestEff, efficiency);
+      const entry = { step, reward: Math.max(-1, Math.min(1, reward)), efficiency, best_efficiency: bestEff };
+      if (step > 200) {
+        entry.critic_loss = 5 * Math.exp(-progress * 3) + rng(step + 2000) * 0.5;
+        entry.predict_q_value = Math.tanh(progress * 2) * 2 + (rng(step + 3000) - 0.5) * 0.3;
+      }
+      metrics.push(entry);
+    }
+    return metrics;
+  };
+
+  return (
+    <div>
+      <Card>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr><TH>워크로드</TH><TH a="center">상태</TH><TH a="center">우선순위</TH><TH>자원</TH><TH>신청자</TH><TH>신청일시</TH></tr></thead>
+          <tbody>
+            {[...workloads].reverse().map(w => (
+              <tr key={w.id} onClick={() => { setSelectedWL(w); setMetricsTab("progress"); }} style={{ cursor: "pointer", background: selectedWL?.id === w.id ? "#F1F5F9" : "transparent", transition: "background .12s" }}>
+                <TD b>{w.name}</TD>
+                <TD a="center">
+                  {w.status === "running" ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 99, border: "2px solid #1D4ED8", borderTopColor: "transparent", animation: "spin .8s linear infinite", display: "inline-block" }} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "#1E40AF" }}>실행 중</span>
+                    </span>
+                  ) : <Badge v={w.status}>{LABEL[w.status]}</Badge>}
+                </TD>
+                <TD a="center"><Badge v={w.priority}>{LABEL[w.priority]}</Badge></TD>
+                <TD>{w.gpu}, {w.mem}</TD>
+                <TD>{w.requester}</TD>
+                <TD>{w.submitted}</TD>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
+      {selectedWL && (selectedWL.status === "completed" || selectedWL.status === "running") && (() => {
+        const metrics = generateSimulatedMetrics(selectedWL.id);
+        const wlSteps = selectedWL.status === "running" ? Math.floor(metrics.length * 0.6) : metrics.length;
+        const visibleMetrics = metrics.slice(0, wlSteps);
+        return (
+          <Card style={{ marginTop: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div>
+                <span style={{ fontSize: 15, fontWeight: 700 }}>{selectedWL.name} — 학습 진행</span>
+                {selectedWL.status === "running" && <span style={{ marginLeft: 8, fontSize: 11, color: "#059669", fontWeight: 600 }}>● 실시간</span>}
+              </div>
+              <button onClick={() => setSelectedWL(null)} style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer" }}>✕</button>
+            </div>
+            <div style={{ display: "flex", gap: 16, padding: "12px 16px", background: "#F8FAFC", borderRadius: 10, fontSize: 13, marginBottom: 14 }}>
+              <div><span style={{ color: "#64748B" }}>Best Efficiency:</span> <strong>{visibleMetrics[visibleMetrics.length-1]?.best_efficiency?.toFixed(1)}%</strong></div>
+              <div><span style={{ color: "#64748B" }}>Step:</span> <strong>{wlSteps}</strong></div>
+              <div><span style={{ color: "#64748B" }}>Latest Reward:</span> <strong>{visibleMetrics[visibleMetrics.length-1]?.reward?.toFixed(3)}</strong></div>
+            </div>
+
+            {/* Per-component resource display */}
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>컴포넌트별 자원 사용량</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                {[
+                  { name: "rcp-setup", gpu: "V100 x 1", mem: "12.3 / 16 GB", usage: 77 },
+                  { name: "multi-agent", gpu: "V100 x 1", mem: "10.1 / 16 GB", usage: 63 },
+                  { name: "environment", gpu: "A100 x 2", mem: "48.2 / 64 GB", usage: 75 },
+                  { name: "train", gpu: "A100 x 4", mem: "98.5 / 128 GB", usage: 77 },
+                  { name: "make-blade", gpu: "V100 x 1", mem: "5.2 / 8 GB", usage: 65 },
+                  { name: "run-cfx", gpu: "A100 x 2", mem: "24.1 / 32 GB", usage: 75 },
+                ].map(c => (
+                  <div key={c.name} style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 11 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>{c.name}</div>
+                    <div style={{ color: "#64748B" }}>{c.gpu} · {c.mem}</div>
+                    <div style={{ marginTop: 6, background: "#E2E8F0", borderRadius: 4, height: 6 }}>
+                      <div style={{ width: c.usage + "%", background: c.usage > 80 ? "#EF4444" : "#059669", borderRadius: 4, height: 6 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+        );
+      })()}
+    </div>
+  );
+}
+
+/* ═══════════════════════ SOLVER MANAGEMENT TAB ═══════════════════════ */
+function SolverManagementTab({ library, setLibrary, flash }) {
+  const solvers = library.filter(c => c.type === "solver");
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: "", image: "", description: "", version: "1.0", className: "", solverId: "", attributes: [], methods: [] });
+
+  const addSolver = () => {
+    if (!form.name || !form.image) { flash("이름과 이미지를 입력하세요."); return; }
+    const newComp = { id: "CL-" + String(library.length + 1).padStart(2, "0"), ...form, type: "solver", created: now().split(" ")[0] };
+    setLibrary(prev => [...prev, newComp]);
+    setForm({ name: "", image: "", description: "", version: "1.0", className: "", solverId: "", attributes: [], methods: [] });
+    setShowForm(false);
+    flash("✓ Solver가 등록되었습니다.");
+  };
+
+  const deleteSolver = (id) => {
+    setLibrary(prev => prev.filter(c => c.id !== id));
+    flash("✓ Solver가 삭제되었습니다.");
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>Solver 컴포넌트 ({solvers.length}개)</div>
+        <Btn v="primary" sz="sm" onClick={() => setShowForm(!showForm)}>{showForm ? "취소" : "새 Solver 등록"}</Btn>
+      </div>
+      {showForm && (
+        <Card style={{ marginBottom: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+            <InputField label="이름" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="solver 이름" />
+            <InputField label="이미지" value={form.image} onChange={e => setForm(f => ({ ...f, image: e.target.value }))} placeholder="registry.avatar.io/solver:tag" />
+            <InputField label="클래스명" value={form.className} onChange={e => setForm(f => ({ ...f, className: e.target.value }))} mono />
+            <InputField label="Solver ID" value={form.solverId} onChange={e => setForm(f => ({ ...f, solverId: e.target.value }))} mono />
+            <InputField label="설명" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+            <InputField label="버전" value={form.version} onChange={e => setForm(f => ({ ...f, version: e.target.value }))} />
+          </div>
+          <Btn v="success" sz="sm" icon="check" onClick={addSolver}>등록</Btn>
+        </Card>
+      )}
+      <Card>
+        {solvers.length === 0 ? (
+          <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>등록된 Solver가 없습니다.</p>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr><TH>ID</TH><TH>이름</TH><TH>클래스명</TH><TH>Solver ID</TH><TH>이미지</TH><TH>설명</TH><TH a="center">작업</TH></tr></thead>
+            <tbody>
+              {solvers.map(c => (
+                <tr key={c.id}>
+                  <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#7E22CE" }}>{c.id}</span></TD>
+                  <TD b>{c.name}</TD>
+                  <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#6366F1" }}>{c.className || "—"}</span></TD>
+                  <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12 }}>{c.solverId || "—"}</span></TD>
+                  <TD><span style={{ fontSize: 12, color: "#64748B", fontFamily: "'JetBrains Mono',monospace" }}>{c.image}</span></TD>
+                  <TD>{c.description}</TD>
+                  <TD a="center"><Btn sz="sm" v="danger" onClick={() => deleteSolver(c.id)}>삭제</Btn></TD>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/* ═══════════════════════ MODEL SELECTION TAB ═══════════════════════ */
+function ModelSelectionTab({ models, setModels, flash }) {
+  const toggleOperatorReady = (id) => {
+    setModels(prev => prev.map(m => m.id === id ? { ...m, operatorReady: !m.operatorReady } : m));
+    const model = models.find(m => m.id === id);
+    flash(model?.operatorReady ? `✓ ${model.name} Operator 배포 해제` : `✓ ${model?.name} Operator 배포 설정`);
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>모델 배포 관리</div>
+      <p style={{ fontSize: 12, color: "#64748B", marginBottom: 14 }}>Operator 배포를 활성화하면 사용자 모드의 Operator 페이지에 모델이 표시됩니다.</p>
+      <Card>
+        {models.length === 0 ? (
+          <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>생성된 모델이 없습니다.</p>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr><TH>모델명</TH><TH>워크로드</TH><TH a="center">크기</TH><TH a="center">성능</TH><TH a="center">생성일시</TH><TH a="center">Operator 배포</TH></tr></thead>
+            <tbody>
+              {[...models].reverse().map(m => (
+                <tr key={m.id}>
+                  <TD b>{m.name}</TD>
+                  <TD>{m.workload}</TD>
+                  <TD a="center">{m.size}</TD>
+                  <TD a="center"><span style={{ fontWeight: 700, color: "#166534" }}>{m.metrics.best_efficiency || m.metrics.accuracy}</span></TD>
+                  <TD a="center">{m.created}</TD>
+                  <TD a="center">
+                    <button onClick={() => toggleOperatorReady(m.id)} style={{
+                      width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer",
+                      background: m.operatorReady ? "#059669" : "#CBD5E1",
+                      position: "relative", transition: "background .2s"
+                    }}>
+                      <span style={{
+                        position: "absolute", top: 2, left: m.operatorReady ? 22 : 2,
+                        width: 20, height: 20, borderRadius: 10, background: "#fff",
+                        boxShadow: "0 1px 3px rgba(0,0,0,.2)", transition: "left .2s"
+                      }} />
+                    </button>
+                  </TD>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
     </div>
   );
 }
