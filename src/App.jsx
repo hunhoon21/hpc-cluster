@@ -2161,7 +2161,7 @@ function ApprovalPage({ pending, approveWorkload, rejectWorkload, runLoopTest, r
       {pending.length === 0 ? (
         <Card>
           <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 14, padding: 32 }}>승인 대기 중인 요청이 없습니다.</p>
-          <p style={{ textAlign: "center", fontSize: 12, color: "#CBD5E1" }}>자원 임계치(GPU ≥ {THRESHOLD.gpu}기, 메모리 ≥ {THRESHOLD.mem}GB)를 초과한 요청만 승인이 필요합니다.</p>
+          <p style={{ textAlign: "center", fontSize: 12, color: "#CBD5E1" }}>학습 요청이 제출되면 여기에 표시됩니다.</p>
         </Card>
       ) : pending.map(w => {
         const refRun = w.testRunRef ? testRuns.find(t => t.id === w.testRunRef) : null;
@@ -2291,7 +2291,7 @@ function ApprovalPage({ pending, approveWorkload, rejectWorkload, runLoopTest, r
                     <p><b>테스트 run:</b> {w.testRunRef || "없음"}</p>
                     <p><b>사전 테스트:</b> {lt?.attachedToRequest ? "개발자 첨부" : "미첨부"} · {lt?.status === "passed" ? "통과" : "미완료"}</p>
                     <p><b>관리자 확인:</b> {lt?.reviewedBy ? `${lt.reviewedBy} (${lt.reviewedAt})` : "미확인"}</p>
-                    <p><b>승인 필요:</b> 자원 임계치 초과</p>
+                    <p><b>승인 필요:</b> 관리자 승인 대기</p>
                   </div>
                 )
               })}>상세</Btn>
