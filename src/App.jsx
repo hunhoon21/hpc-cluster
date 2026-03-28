@@ -41,7 +41,7 @@ const tid = () => "TASK-" + Date.now().toString(36).toUpperCase() + Math.random(
 const now = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0") + " " + String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0"); };
 
 // Resource threshold — requests above this require admin approval
-const THRESHOLD = { gpu: 4, mem: 128 };
+// THRESHOLD 제거 (v1.9): 자원 임계치 기능 삭제
 
 const INIT_SPECS = [
   { id: "APP-003", name: "RCP-BladeOpt", version: "1.0.0", status: "ready", created: "2025-03-01",
@@ -561,14 +561,7 @@ export default function App() {
             );
           })}
           
-          {/* Threshold info */}
-          <div style={{ margin: "20px 10px 0", padding: "12px 14px", background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", letterSpacing: 0.5, marginBottom: 6, textTransform: "uppercase" }}>자원 임계치</div>
-            <div style={{ fontSize: 12, color: "#64748B", lineHeight: 1.7 }}>
-              GPU ≥ {THRESHOLD.gpu}기 또는<br/>메모리 ≥ {THRESHOLD.mem}GB<br/>
-              <span style={{ fontSize: 11, color: "#94A3B8" }}>→ 관리자 승인 필요</span>
-            </div>
-          </div>
+          {/* 자원 임계치 사이드바 제거 (v1.9) */}
         </nav>
 
         {/* ─── Main Content ─── */}
@@ -1076,6 +1069,11 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library, setLibrary, a
           ))}
         </div>
       )}
+
+      {/* 글로벌 컴포넌트 라이브러리 (solver 포함 전체) */}
+      <div style={{ marginTop: 24 }}>
+        <ComponentLibraryInline library={library} setLibrary={setLibrary} flash={flash} />
+      </div>
     </div>
   );
 
@@ -2895,7 +2893,7 @@ function ComponentLibraryInline({ library, setLibrary, flash }) {
   const [expanded, setExpanded] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", image: "", description: "", version: "1.0", type: "component", className: "", attributes: [], methods: [] });
-  const nonSolverLibrary = library.filter(c => c.type !== "solver");
+  const allLibrary = library; // solver 포함 전체 라이브러리 표시
 
   const addComponent = () => {
     if (!form.name || !form.image) { flash("이름과 이미지를 입력하세요."); return; }
@@ -2909,7 +2907,7 @@ function ComponentLibraryInline({ library, setLibrary, flash }) {
   return (
     <Card style={{ marginTop: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setExpanded(!expanded)}>
-        <div style={{ fontSize: 14, fontWeight: 700 }}>컴포넌트 글로벌 라이브러리 ({nonSolverLibrary.length}개)</div>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>컴포넌트 글로벌 라이브러리 ({allLibrary.length}개)</div>
         <span style={{ fontSize: 12, color: "#94A3B8" }}>{expanded ? "▲ 접기" : "▼ 펼치기"}</span>
       </div>
       {expanded && (
@@ -2931,7 +2929,7 @@ function ComponentLibraryInline({ library, setLibrary, flash }) {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><TH>이름</TH><TH>타입</TH><TH>클래스명</TH><TH>이미지</TH><TH>설명</TH></tr></thead>
             <tbody>
-              {nonSolverLibrary.map(c => {
+              {allLibrary.map(c => {
                 const typeColors = { component: ["#F1F5F9","#475569"], environment: ["#DBEAFE","#1E40AF"], train: ["#F3E8FF","#6B21A8"] };
                 const [tbg, tfg] = typeColors[c.type] || typeColors.component;
                 return (
