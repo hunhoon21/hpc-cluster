@@ -265,9 +265,7 @@ const parseGpuCount = (gpuStr) => {
 const parseMemNum = (memStr) => parseInt(memStr) || 0;
 
 /* check if workload exceeds resource threshold */
-const exceedsThreshold = (gpuStr, memStr) => {
-  return parseGpuCount(gpuStr) >= THRESHOLD.gpu || parseMemNum(memStr) >= THRESHOLD.mem;
-};
+const exceedsThreshold = () => false; // v1.9: 자원 임계치 삭제 — 모든 요청은 관리자가 Trainer에서 관리
 
 /* ─── Helpers for 3-tier App→Task→Component structure ─── */
 const getAllComponents = (spec) => {
@@ -323,11 +321,7 @@ const wouldCreateCycle = (edges, fromId, toId) => {
   return false;
 };
 
-const exceedsThresholdSpec = (spec) => {
-  return getAllComponents(spec).some(c =>
-    c.gpu_count >= THRESHOLD.gpu || (parseInt(c.mem) || 0) >= THRESHOLD.mem
-  );
-};
+const exceedsThresholdSpec = () => false; // v1.9: 자원 임계치 삭제
 
 /* ═══════════════════════════ MAIN APP ═══════════════════════════ */
 export default function App() {
