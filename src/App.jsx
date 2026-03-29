@@ -2919,10 +2919,10 @@ function ComponentLibraryInline({ library, setLibrary, flash }) {
                   <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 4 }}>타입</label>
                   <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} style={{ display: "block", width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", boxSizing: "border-box", background: "#fff", fontFamily: "inherit" }}>
                     <option value="component">Component</option>
-                    <option value="solver">Solver</option>
                     <option value="environment">Environment</option>
                     <option value="train">Train</option>
                   </select>
+                  <span style={{ fontSize: 10, color: "#94A3B8", marginTop: 2, display: "block" }}>Solver는 관리자(Trainer)에서만 등록 가능</span>
                 </div>
                 <InputField label="설명" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
                 <InputField label="버전" value={form.version} onChange={e => setForm(f => ({ ...f, version: e.target.value }))} />
