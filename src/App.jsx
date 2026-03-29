@@ -3281,27 +3281,74 @@ function WorkloadsPageWithResources({ workloads, specs }) {
               <div><span style={{ color: "#64748B" }}>Latest Reward:</span> <strong>{visibleMetrics[visibleMetrics.length-1]?.reward?.toFixed(3)}</strong></div>
             </div>
 
-            {/* Per-component resource display */}
+            {/* Per-component execution status + resources */}
             <div style={{ marginTop: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>컴포넌트별 자원 사용량</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-                {[
-                  { name: "rcp-setup", gpu: "V100 x 1", mem: "12.3 / 16 GB", usage: 77 },
-                  { name: "multi-agent", gpu: "V100 x 1", mem: "10.1 / 16 GB", usage: 63 },
-                  { name: "environment", gpu: "A100 x 2", mem: "48.2 / 64 GB", usage: 75 },
-                  { name: "train", gpu: "A100 x 4", mem: "98.5 / 128 GB", usage: 77 },
-                  { name: "make-blade", gpu: "V100 x 1", mem: "5.2 / 8 GB", usage: 65 },
-                  { name: "run-cfx", gpu: "A100 x 2", mem: "24.1 / 32 GB", usage: 75 },
-                ].map(c => (
-                  <div key={c.name} style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 11 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 4 }}>{c.name}</div>
-                    <div style={{ color: "#64748B" }}>{c.gpu} · {c.mem}</div>
-                    <div style={{ marginTop: 6, background: "#E2E8F0", borderRadius: 4, height: 6 }}>
-                      <div style={{ width: c.usage + "%", background: c.usage > 80 ? "#EF4444" : "#059669", borderRadius: 4, height: 6 }} />
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>컴포넌트별 실행 현황</div>
+              <p style={{ fontSize: 11, color: "#94A3B8", margin: "0 0 10px" }}>각 컴포넌트가 순서대로 실행되며, 개별 자원이 할당됩니다.</p>
+              {(() => {
+                const isRunning = sel?.status === "running";
+                const progress = isRunning ? 0.6 : 1.0;
+                const components = [
+                  { order: 1, name: "rcp-setup", type: "component", gpu: "V100 x 1", memAlloc: "16GB", memUsed: "12.3", usage: 77 },
+                  { order: 2, name: "impeller-agent", type: "component", gpu: "V100 x 1", memAlloc: "8GB", memUsed: "5.8", usage: 73 },
+                  { order: 3, name: "diffuser-agent", type: "component", gpu: "V100 x 1", memAlloc: "8GB", memUsed: "5.6", usage: 70 },
+                  { order: 4, name: "multi-agent", type: "component", gpu: "V100 x 1", memAlloc: "16GB", memUsed: "10.1", usage: 63 },
+                  { order: 5, name: "make-blade", type: "solver", gpu: "V100 x 1", memAlloc: "8GB", memUsed: "5.2", usage: 65 },
+                  { order: 6, name: "mesh-generator", type: "solver", gpu: "V100 x 1", memAlloc: "8GB", memUsed: "6.1", usage: 76 },
+                  { order: 7, name: "run-cfx", type: "solver", gpu: "A100 x 2", memAlloc: "32GB", memUsed: "24.1", usage: 75 },
+                  { order: 8, name: "environment", type: "environment", gpu: "A100 x 2", memAlloc: "64GB", memUsed: "48.2", usage: 75 },
+                  { order: 9, name: "train", type: "train", gpu: "A100 x 4", memAlloc: "128GB", memUsed: "98.5", usage: 77 },
+                ];
+                const activeIdx = isRunning ? Math.floor(components.length * progress) : components.length;
+                const statusColors = { completed: ["#DCFCE7","#166534"], running: ["#DBEAFE","#1E40AF"], waiting: ["#F1F5F9","#94A3B8"] };
+                const typeColors = { component: "#475569", solver: "#92400E", environment: "#1E40AF", train: "#6B21A8" };
+                return (
+                  <>
+                    {/* Execution flow */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
+                      {components.map((c, i) => {
+                        const st = i < activeIdx ? "completed" : i === activeIdx ? "running" : "waiting";
+                        const [bg, fg] = statusColors[st];
+                        return (
+                          <div key={c.name} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, background: bg, color: fg, border: st === "running" ? "2px solid #1E40AF" : "1px solid transparent" }}>
+                              {c.order}. {c.name}
+                              {st === "running" && " ●"}
+                            </span>
+                            {i < components.length - 1 && <span style={{ color: "#CBD5E1", fontSize: 12 }}>→</span>}
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                ))}
-              </div>
+                    {/* Resource grid */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                      {components.map((c, i) => {
+                        const st = i < activeIdx ? "completed" : i === activeIdx ? "running" : "waiting";
+                        const borderColor = st === "running" ? "#1E40AF" : st === "completed" ? "#BBF7D0" : "#E2E8F0";
+                        const typeBg = { component: "#F1F5F9", solver: "#FEF3C7", environment: "#DBEAFE", train: "#F3E8FF" };
+                        return (
+                          <div key={c.name} style={{ padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${borderColor}`, fontSize: 11, background: st === "waiting" ? "#FAFAFA" : "#fff", opacity: st === "waiting" ? 0.6 : 1 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                              <span style={{ fontWeight: 700, color: "#0F172A" }}>{c.order}. {c.name}</span>
+                              <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: typeBg[c.type], color: typeColors[c.type], fontWeight: 600 }}>{c.type}</span>
+                            </div>
+                            <div style={{ color: "#64748B", marginBottom: 4 }}>{c.gpu} · {c.memUsed} / {c.memAlloc}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <div style={{ flex: 1, background: "#E2E8F0", borderRadius: 4, height: 6 }}>
+                                <div style={{ width: (st === "waiting" ? 0 : c.usage) + "%", background: st === "running" ? "#1E40AF" : c.usage > 80 ? "#EF4444" : "#059669", borderRadius: 4, height: 6, transition: "width .3s" }} />
+                              </div>
+                              <span style={{ fontSize: 10, color: "#64748B", minWidth: 28, textAlign: "right" }}>{st === "waiting" ? "—" : c.usage + "%"}</span>
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 10, color: st === "completed" ? "#166534" : st === "running" ? "#1E40AF" : "#94A3B8", fontWeight: 600 }}>
+                              {st === "completed" ? "✓ 완료" : st === "running" ? "● 실행 중" : "대기"}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </Card>
         );
