@@ -3180,7 +3180,7 @@ function TrainerAdminPage({ workloads, setWorkloads, models, setModels, specs, l
       {tab === "workloads" && <WorkloadsPageWithResources workloads={workloads} specs={specs} />}
       {tab === "resources" && <ResourcesPage workloads={workloads} />}
       {tab === "solvers" && <SolverManagementTab library={library} setLibrary={setLibrary} flash={flash} />}
-      {tab === "models" && <ModelSelectionTab models={models} setModels={setModels} flash={flash} />}
+      {tab === "models" && <ModelSelectionTab models={models} setModels={setModels} specs={specs} flash={flash} />}
     </div>
   );
 }
@@ -3189,6 +3189,7 @@ function TrainerAdminPage({ workloads, setWorkloads, models, setModels, specs, l
 function WorkloadsPageWithResources({ workloads, specs }) {
   const [selectedWL, setSelectedWL] = useState(null);
   const [metricsTab, setMetricsTab] = useState("progress");
+  const [compareIds, setCompareIds] = useState([]);
 
   const generateSimulatedMetrics = (workloadId, totalSteps = 500) => {
     const seed = workloadId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -3212,6 +3213,101 @@ function WorkloadsPageWithResources({ workloads, specs }) {
     return metrics;
   };
 
+  const renderMetricChart = (title, data, key, yMin, yMax, color, baseline) => {
+    if (!data || data.length === 0) return (
+      <div style={{ padding: 30, textAlign: "center", color: "#94A3B8", fontSize: 12, border: "1px solid #E2E8F0", borderRadius: 10 }}>
+        {title}: warm-up 진행 중...
+      </div>
+    );
+    const w = 400, h = 180, pad = { t: 30, r: 10, b: 30, l: 50 };
+    const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
+    const xScale = (i) => pad.l + (i / (data.length - 1 || 1)) * pw;
+    const yScale = (v) => pad.t + ph - ((v - yMin) / (yMax - yMin || 1)) * ph;
+    const points = data.map((d, i) => `${xScale(i)},${yScale(d[key])}`);
+    const maWindow = Math.min(20, Math.floor(data.length / 5));
+    const maPoints = [];
+    if (maWindow > 1) {
+      for (let i = 0; i < data.length; i++) {
+        const start = Math.max(0, i - maWindow);
+        const slice = data.slice(start, i + 1);
+        const avg = slice.reduce((s, d) => s + d[key], 0) / slice.length;
+        maPoints.push(`${xScale(i)},${yScale(avg)}`);
+      }
+    }
+    return (
+      <div style={{ border: "1px solid #E2E8F0", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+        <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block", width: "100%", height: "auto" }}>
+          <text x={pad.l} y={16} fontSize={12} fontWeight={700} fill="#0F172A">{title}</text>
+          <text x={pad.l - 5} y={pad.t + 4} fontSize={9} fill="#94A3B8" textAnchor="end">{yMax}</text>
+          <text x={pad.l - 5} y={h - pad.b + 4} fontSize={9} fill="#94A3B8" textAnchor="end">{yMin}</text>
+          <line x1={pad.l} y1={pad.t} x2={pad.l} y2={h - pad.b} stroke="#E2E8F0" strokeWidth={1} />
+          <line x1={pad.l} y1={h - pad.b} x2={w - pad.r} y2={h - pad.b} stroke="#E2E8F0" strokeWidth={1} />
+          {baseline !== null && baseline !== undefined && (
+            <>
+              <line x1={pad.l} y1={yScale(baseline)} x2={w - pad.r} y2={yScale(baseline)} stroke="#EF4444" strokeWidth={1} strokeDasharray="4,4" />
+              <text x={w - pad.r - 2} y={yScale(baseline) - 4} fontSize={9} fill="#EF4444" textAnchor="end">{baseline}%</text>
+            </>
+          )}
+          <polyline points={points.join(" ")} fill="none" stroke={color} strokeWidth={1} opacity={0.3} />
+          {maPoints.length > 0 && (
+            <polyline points={maPoints.join(" ")} fill="none" stroke={color} strokeWidth={2} />
+          )}
+          <text x={w / 2} y={h - 5} fontSize={9} fill="#94A3B8" textAnchor="middle">step</text>
+          <text x={pad.l} y={h - 5} fontSize={9} fill="#94A3B8">{data[0]?.step}</text>
+          <text x={w - pad.r} y={h - 5} fontSize={9} fill="#94A3B8" textAnchor="end">{data[data.length - 1]?.step}</text>
+        </svg>
+      </div>
+    );
+  };
+
+  const renderCompareChart = (title, compareData, key, yMin, yMax, baseline) => {
+    const w = 400, h = 200, pad = { t: 30, r: 80, b: 30, l: 50 };
+    const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
+    const maxSteps = Math.max(...compareData.map(d => d.metrics.length));
+    const xScale = (i) => pad.l + (i / (maxSteps - 1 || 1)) * pw;
+    const yScale = (v) => pad.t + ph - ((v - yMin) / (yMax - yMin || 1)) * ph;
+    return (
+      <div style={{ border: "1px solid #E2E8F0", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+        <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block", width: "100%", height: "auto" }}>
+          <text x={pad.l} y={16} fontSize={12} fontWeight={700} fill="#0F172A">{title}</text>
+          <text x={pad.l - 5} y={pad.t + 4} fontSize={9} fill="#94A3B8" textAnchor="end">{yMax}</text>
+          <text x={pad.l - 5} y={h - pad.b + 4} fontSize={9} fill="#94A3B8" textAnchor="end">{yMin}</text>
+          <line x1={pad.l} y1={pad.t} x2={pad.l} y2={h - pad.b} stroke="#E2E8F0" strokeWidth={1} />
+          <line x1={pad.l} y1={h - pad.b} x2={w - pad.r} y2={h - pad.b} stroke="#E2E8F0" strokeWidth={1} />
+          {baseline !== null && baseline !== undefined && (
+            <>
+              <line x1={pad.l} y1={yScale(baseline)} x2={w - pad.r} y2={yScale(baseline)} stroke="#EF4444" strokeWidth={1} strokeDasharray="4,4" />
+              <text x={w - pad.r + 4} y={yScale(baseline) + 3} fontSize={9} fill="#EF4444">{baseline}%</text>
+            </>
+          )}
+          {compareData.map((d, idx) => {
+            const maWindow = Math.min(20, Math.floor(d.metrics.length / 5));
+            const maPoints = [];
+            for (let i = 0; i < d.metrics.length; i++) {
+              if (d.metrics[i][key] === undefined) continue;
+              const start = Math.max(0, i - maWindow);
+              const slice = d.metrics.slice(start, i + 1).filter(m => m[key] !== undefined);
+              if (slice.length === 0) continue;
+              const avg = slice.reduce((s, m) => s + m[key], 0) / slice.length;
+              maPoints.push(`${xScale(i)},${yScale(avg)}`);
+            }
+            return (
+              <g key={d.workload.id}>
+                <polyline points={maPoints.join(" ")} fill="none" stroke={d.color} strokeWidth={2} />
+                <line x1={w - pad.r + 6} y1={pad.t + 10 + idx * 16} x2={w - pad.r + 20} y2={pad.t + 10 + idx * 16} stroke={d.color} strokeWidth={2} />
+                <text x={w - pad.r + 24} y={pad.t + 14 + idx * 16} fontSize={9} fill={d.color}>{d.workload.name.slice(0, 10)}</text>
+              </g>
+            );
+          })}
+          <text x={w / 2} y={h - 5} fontSize={9} fill="#94A3B8" textAnchor="middle">step</text>
+        </svg>
+      </div>
+    );
+  };
+
+  const tabBtnStyle = (tab) => ({ padding: "5px 14px", borderRadius: 6, border: metricsTab === tab ? "2px solid #0F172A" : "1px solid #E2E8F0", background: metricsTab === tab ? "#F1F5F9" : "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" });
+  const closeBtnStyle = { padding: "5px 10px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontFamily: "inherit" };
+
   return (
     <div>
       <Card>
@@ -3219,7 +3315,7 @@ function WorkloadsPageWithResources({ workloads, specs }) {
           <thead><tr><TH>워크로드</TH><TH a="center">상태</TH><TH a="center">우선순위</TH><TH>자원</TH><TH>신청자</TH><TH>신청일시</TH></tr></thead>
           <tbody>
             {[...workloads].reverse().map(w => (
-              <tr key={w.id} onClick={() => { setSelectedWL(w); setMetricsTab("progress"); }} style={{ cursor: "pointer", background: selectedWL?.id === w.id ? "#F1F5F9" : "transparent", transition: "background .12s" }}>
+              <tr key={w.id} onClick={() => { setSelectedWL(w); setMetricsTab("progress"); setCompareIds([]); }} style={{ cursor: "pointer", background: selectedWL?.id === w.id ? "#F1F5F9" : "transparent", transition: "background .12s" }}>
                 <TD b>{w.name}</TD>
                 <TD a="center">
                   {w.status === "running" ? (
@@ -3239,7 +3335,8 @@ function WorkloadsPageWithResources({ workloads, specs }) {
         </table>
       </Card>
 
-      {selectedWL && (selectedWL.status === "completed" || selectedWL.status === "running") && (() => {
+      {/* Training Progress Tab */}
+      {selectedWL && metricsTab === "progress" && (selectedWL.status === "completed" || selectedWL.status === "running") && (() => {
         const metrics = generateSimulatedMetrics(selectedWL.id);
         const wlSteps = selectedWL.status === "running" ? Math.floor(metrics.length * 0.6) : metrics.length;
         const visibleMetrics = metrics.slice(0, wlSteps);
@@ -3250,8 +3347,22 @@ function WorkloadsPageWithResources({ workloads, specs }) {
                 <span style={{ fontSize: 15, fontWeight: 700 }}>{selectedWL.name} — 학습 진행</span>
                 {selectedWL.status === "running" && <span style={{ marginLeft: 8, fontSize: 11, color: "#059669", fontWeight: 600 }}>● 실시간</span>}
               </div>
-              <button onClick={() => setSelectedWL(null)} style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer" }}>✕</button>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => setMetricsTab("progress")} style={tabBtnStyle("progress")}>학습 진행</button>
+                <button onClick={() => setMetricsTab("compare")} style={tabBtnStyle("compare")}>실험 비교</button>
+                <button onClick={() => setSelectedWL(null)} style={closeBtnStyle}>✕</button>
+              </div>
             </div>
+
+            {/* 4 metric charts in 2x2 grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+              {renderMetricChart("Reward", visibleMetrics, "reward", -1, 1, "#1E40AF", null)}
+              {renderMetricChart("Efficiency (%)", visibleMetrics, "efficiency", 50, 100, "#059669", 83.9)}
+              {renderMetricChart("Critic Loss", visibleMetrics.filter(m => m.critic_loss !== undefined), "critic_loss", 0, 6, "#DC2626", null)}
+              {renderMetricChart("Predict Q-value", visibleMetrics.filter(m => m.predict_q_value !== undefined), "predict_q_value", -1, 3, "#7C3AED", null)}
+            </div>
+
+            {/* Summary bar */}
             <div style={{ display: "flex", gap: 16, padding: "12px 16px", background: "#F8FAFC", borderRadius: 10, fontSize: 13, marginBottom: 14 }}>
               <div><span style={{ color: "#64748B" }}>Best Efficiency:</span> <strong>{visibleMetrics[visibleMetrics.length-1]?.best_efficiency?.toFixed(1)}%</strong></div>
               <div><span style={{ color: "#64748B" }}>Step:</span> <strong>{wlSteps}</strong></div>
@@ -3263,7 +3374,7 @@ function WorkloadsPageWithResources({ workloads, specs }) {
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>컴포넌트별 실행 현황</div>
               <p style={{ fontSize: 11, color: "#94A3B8", margin: "0 0 10px" }}>각 컴포넌트가 순서대로 실행되며, 개별 자원이 할당됩니다.</p>
               {(() => {
-                const isRunning = sel?.status === "running";
+                const isRunning = selectedWL?.status === "running";
                 const progress = isRunning ? 0.6 : 1.0;
                 const components = [
                   { order: 1, name: "rcp-setup", type: "component", gpu: "V100 x 1", memAlloc: "16GB", memUsed: "12.3", usage: 77 },
@@ -3327,6 +3438,89 @@ function WorkloadsPageWithResources({ workloads, specs }) {
                 );
               })()}
             </div>
+          </Card>
+        );
+      })()}
+
+      {/* Experiment Comparison Tab */}
+      {selectedWL && metricsTab === "compare" && (() => {
+        const sameAppWLs = workloads.filter(w => w.specId === selectedWL.specId && (w.status === "completed" || w.status === "running"));
+        const activeCompareIds = compareIds.length > 0 ? compareIds : [selectedWL.id];
+        const colors = ["#1E40AF", "#DC2626", "#059669", "#7C3AED", "#D97706"];
+        const compareData = activeCompareIds.map((id, idx) => ({
+          workload: workloads.find(w => w.id === id),
+          metrics: generateSimulatedMetrics(id),
+          color: colors[idx % colors.length],
+        })).filter(d => d.workload);
+        return (
+          <Card style={{ marginTop: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <span style={{ fontSize: 15, fontWeight: 700 }}>실험 비교 — {specs.find(s => s.id === selectedWL.specId)?.name || selectedWL.name}</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => setMetricsTab("progress")} style={tabBtnStyle("progress")}>학습 진행</button>
+                <button onClick={() => setMetricsTab("compare")} style={tabBtnStyle("compare")}>실험 비교</button>
+                <button onClick={() => setSelectedWL(null)} style={closeBtnStyle}>✕</button>
+              </div>
+            </div>
+            <div style={{ marginBottom: 14, padding: "10px 14px", background: "#F8FAFC", borderRadius: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6 }}>실행 선택 (같은 App)</div>
+              {sameAppWLs.map(w => (
+                <label key={w.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, fontSize: 12, cursor: "pointer" }}>
+                  <input type="checkbox" checked={activeCompareIds.includes(w.id)} onChange={e => {
+                    if (e.target.checked) setCompareIds([...activeCompareIds, w.id]);
+                    else setCompareIds(activeCompareIds.filter(id => id !== w.id));
+                  }} />
+                  <span style={{ fontWeight: 600 }}>{w.name}</span>
+                  <span style={{ color: "#64748B" }}>({w.gpu}, {w.mem})</span>
+                  <Badge v={w.status}>{w.status === "completed" ? "완료" : w.status === "running" ? "실행 중" : w.status}</Badge>
+                </label>
+              ))}
+            </div>
+            {compareData.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                {renderCompareChart("Efficiency (%)", compareData, "efficiency", 50, 100, 83.9)}
+                {renderCompareChart("Reward", compareData, "reward", -1, 1, null)}
+              </div>
+            )}
+            {compareData.length > 1 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>파라미터 비교</div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ padding: "6px 10px", textAlign: "left", borderBottom: "2px solid #E2E8F0", color: "#64748B" }}>파라미터</th>
+                      {compareData.map(d => (
+                        <th key={d.workload.id} style={{ padding: "6px 10px", textAlign: "center", borderBottom: "2px solid #E2E8F0", color: d.color, fontWeight: 700 }}>{d.workload.name}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { label: "actor_lr", key: "actor_lr", values: ["0.0001", "0.001"] },
+                      { label: "critic_lr", key: "critic_lr", values: ["0.0001", "0.0001"] },
+                      { label: "minibatch_size", key: "minibatch", values: ["100", "100"] },
+                      { label: "warm_up_num", key: "warmup", values: ["200", "200"] },
+                      { label: "random_seed", key: "seed", values: ["1234", "5678"] },
+                      { label: "impeller_variation_ratio", key: "imp_var", values: ["0.2", "0.2"] },
+                      { label: "diffuser_variation_ratio", key: "dif_var", values: ["0.2", "0.15"] },
+                      { label: "impeller_blade_range", key: "imp_blade", values: ["4~8", "4~8"] },
+                      { label: "diffuser_blade_range", key: "dif_blade", values: ["8~14", "8~14"] },
+                      { label: "Best Efficiency", key: "best_eff", values: null },
+                    ].map((param) => (
+                      <tr key={param.key}>
+                        <td style={{ padding: "5px 10px", borderBottom: "1px solid #F1F5F9", color: "#475569", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>{param.label}</td>
+                        {compareData.map((d, di) => {
+                          const val = param.values ? (param.values[di] || param.values[0]) : d.metrics[d.metrics.length - 1]?.best_efficiency?.toFixed(1) + "%";
+                          const otherVals = param.values ? compareData.map((_, oi) => param.values[oi] || param.values[0]).filter((_, oi) => oi !== di) : [];
+                          const isDiff = param.values && otherVals.length > 0 && otherVals.some(ov => ov !== val);
+                          return <td key={d.workload.id} style={{ padding: "5px 10px", textAlign: "center", borderBottom: "1px solid #F1F5F9", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: isDiff ? 700 : 400, color: isDiff ? "#DC2626" : "#334155", background: isDiff ? "#FEF2F2" : "transparent" }}>{val}</td>;
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
         );
       })()}
@@ -3400,12 +3594,20 @@ function SolverManagementTab({ library, setLibrary, flash }) {
 }
 
 /* ═══════════════════════ MODEL SELECTION TAB ═══════════════════════ */
-function ModelSelectionTab({ models, setModels, flash }) {
+function ModelSelectionTab({ models, setModels, specs, flash }) {
+  const [selectedModel, setSelectedModel] = useState(null);
+  const [compareIds, setCompareIds] = useState([]);
+  const [viewTab, setViewTab] = useState("detail"); // "detail" | "compare"
+
   const toggleOperatorReady = (id) => {
     setModels(prev => prev.map(m => m.id === id ? { ...m, operatorReady: !m.operatorReady } : m));
     const model = models.find(m => m.id === id);
     flash(model?.operatorReady ? `✓ ${model.name} Operator 배포 해제` : `✓ ${model?.name} Operator 배포 설정`);
   };
+
+  const sel = models.find(m => m.id === selectedModel);
+  const sameAppModels = sel ? models.filter(m => m.specId === sel.specId) : [];
+  const hasRLMetrics = (m) => m.metrics.best_efficiency !== undefined;
 
   return (
     <div>
@@ -3416,34 +3618,186 @@ function ModelSelectionTab({ models, setModels, flash }) {
           <p style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: 24 }}>생성된 모델이 없습니다.</p>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><TH>모델명</TH><TH>워크로드</TH><TH a="center">크기</TH><TH a="center">성능</TH><TH a="center">생성일시</TH><TH a="center">Operator 배포</TH></tr></thead>
+            <thead><tr><TH>모델명</TH><TH>App</TH><TH>워크로드</TH><TH a="center">크기</TH><TH a="center">성능</TH><TH a="center">생성일시</TH><TH a="center">Operator 배포</TH></tr></thead>
             <tbody>
-              {[...models].reverse().map(m => (
-                <tr key={m.id}>
-                  <TD b>{m.name}</TD>
-                  <TD>{m.workload}</TD>
-                  <TD a="center">{m.size}</TD>
-                  <TD a="center"><span style={{ fontWeight: 700, color: "#166534" }}>{m.metrics.best_efficiency || m.metrics.accuracy}</span></TD>
-                  <TD a="center">{m.created}</TD>
-                  <TD a="center">
-                    <button onClick={() => toggleOperatorReady(m.id)} style={{
-                      width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer",
-                      background: m.operatorReady ? "#059669" : "#CBD5E1",
-                      position: "relative", transition: "background .2s"
-                    }}>
-                      <span style={{
-                        position: "absolute", top: 2, left: m.operatorReady ? 22 : 2,
-                        width: 20, height: 20, borderRadius: 10, background: "#fff",
-                        boxShadow: "0 1px 3px rgba(0,0,0,.2)", transition: "left .2s"
-                      }} />
-                    </button>
-                  </TD>
-                </tr>
-              ))}
+              {[...models].reverse().map(m => {
+                const specName = specs?.find(s => s.id === m.specId)?.name || m.specId || "—";
+                return (
+                  <tr key={m.id} onClick={() => { setSelectedModel(m.id); setViewTab("detail"); setCompareIds([m.id]); }} style={{ cursor: "pointer", background: selectedModel === m.id ? "#FEF3C7" : "transparent", transition: "background .15s" }}>
+                    <TD b>{m.name}</TD>
+                    <TD><span style={{ fontSize: 12, color: "#6366F1", fontWeight: 500 }}>{specName}</span></TD>
+                    <TD><span style={{ fontSize: 12, color: "#64748B" }}>{m.workload}</span> <span style={{ fontSize: 10, color: "#94A3B8", fontFamily: "'JetBrains Mono',monospace" }}>({m.workloadId})</span></TD>
+                    <TD a="center">{m.size}</TD>
+                    <TD a="center"><span style={{ fontWeight: 700, color: "#166534" }}>{m.metrics.best_efficiency || m.metrics.accuracy}</span></TD>
+                    <TD a="center">{m.created}</TD>
+                    <TD a="center">
+                      <button onClick={(e) => { e.stopPropagation(); toggleOperatorReady(m.id); }} style={{
+                        width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer",
+                        background: m.operatorReady ? "#059669" : "#CBD5E1",
+                        position: "relative", transition: "background .2s"
+                      }}>
+                        <span style={{
+                          position: "absolute", top: 2, left: m.operatorReady ? 22 : 2,
+                          width: 20, height: 20, borderRadius: 10, background: "#fff",
+                          boxShadow: "0 1px 3px rgba(0,0,0,.2)", transition: "left .2s"
+                        }} />
+                      </button>
+                    </TD>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
       </Card>
+
+      {/* Model Detail / Compare Panel */}
+      {sel && (
+        <Card style={{ marginTop: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <span style={{ fontSize: 15, fontWeight: 700 }}>{sel.name}</span>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => setViewTab("detail")} style={{ padding: "5px 14px", borderRadius: 6, border: viewTab === "detail" ? "2px solid #0F172A" : "1px solid #E2E8F0", background: viewTab === "detail" ? "#F1F5F9" : "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>성능 요약</button>
+              {sameAppModels.length > 1 && <button onClick={() => setViewTab("compare")} style={{ padding: "5px 14px", borderRadius: 6, border: viewTab === "compare" ? "2px solid #0F172A" : "1px solid #E2E8F0", background: viewTab === "compare" ? "#F1F5F9" : "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>모델 비교</button>}
+              <button onClick={() => setSelectedModel(null)} style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontFamily: "inherit" }}>✕</button>
+            </div>
+          </div>
+
+          {viewTab === "detail" && (
+            <>
+              {/* Performance Summary */}
+              <div style={{ display: "grid", gridTemplateColumns: hasRLMetrics(sel) ? "repeat(4, 1fr)" : "repeat(2, 1fr)", gap: 12, marginBottom: 14 }}>
+                {hasRLMetrics(sel) ? (
+                  <>
+                    <div style={{ padding: "14px 16px", background: "#F0FDF4", borderRadius: 10, border: "1px solid #BBF7D0" }}>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 4 }}>Best Efficiency</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#166534" }}>{sel.metrics.best_efficiency}</div>
+                    </div>
+                    <div style={{ padding: "14px 16px", background: "#EFF6FF", borderRadius: 10, border: "1px solid #BFDBFE" }}>
+                      <div style={{ fontSize: 11, color: "#1E40AF", marginBottom: 4 }}>Head Coefficient</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#1E40AF" }}>{sel.metrics.head_coefficient}</div>
+                    </div>
+                    <div style={{ padding: "14px 16px", background: "#FEF3C7", borderRadius: 10, border: "1px solid #FDE68A" }}>
+                      <div style={{ fontSize: 11, color: "#92400E", marginBottom: 4 }}>TPLC</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#92400E" }}>{sel.metrics.tplc}</div>
+                    </div>
+                    <div style={{ padding: "14px 16px", background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
+                      <div style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}>Total Steps</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#0F172A" }}>{sel.metrics.total_steps}</div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ padding: "14px 16px", background: "#F0FDF4", borderRadius: 10, border: "1px solid #BBF7D0" }}>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 4 }}>Accuracy</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#166534" }}>{sel.metrics.accuracy}</div>
+                    </div>
+                    <div style={{ padding: "14px 16px", background: "#EFF6FF", borderRadius: 10, border: "1px solid #BFDBFE" }}>
+                      <div style={{ fontSize: 11, color: "#1E40AF", marginBottom: 4 }}>Loss</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#1E40AF" }}>{sel.metrics.loss}</div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Extra RL metrics */}
+              {hasRLMetrics(sel) && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+                  <div style={{ padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, fontSize: 12 }}>
+                    <span style={{ color: "#64748B" }}>Flow Coefficient: </span><strong>{sel.metrics.flow_coefficient}</strong>
+                  </div>
+                  <div style={{ padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, fontSize: 12 }}>
+                    <span style={{ color: "#64748B" }}>Axial Thrust: </span><strong>{sel.metrics.axial_thrust}</strong>
+                  </div>
+                  <div style={{ padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, fontSize: 12 }}>
+                    <span style={{ color: "#64748B" }}>Model Size: </span><strong>{sel.size}</strong>
+                  </div>
+                </div>
+              )}
+
+              {/* Source workload / app info */}
+              <div style={{ padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, fontSize: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>
+                  <span style={{ color: "#64748B" }}>App: </span>
+                  <strong style={{ color: "#6366F1" }}>{specs?.find(s => s.id === sel.specId)?.name || sel.specId || "—"}</strong>
+                  {sel.specId && <span style={{ color: "#94A3B8", marginLeft: 4 }}>({sel.specId})</span>}
+                  <span style={{ color: "#E2E8F0", margin: "0 8px" }}>|</span>
+                  <span style={{ color: "#64748B" }}>워크로드: </span>
+                  <strong>{sel.workload}</strong>
+                  <span style={{ color: "#94A3B8", marginLeft: 4 }}>({sel.workloadId})</span>
+                </span>
+                <span style={{ color: "#64748B" }}>생성일: {sel.created}</span>
+              </div>
+            </>
+          )}
+
+          {viewTab === "compare" && (
+            <>
+              {/* Model selector */}
+              <div style={{ marginBottom: 14, padding: "10px 14px", background: "#F8FAFC", borderRadius: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6 }}>모델 선택 (같은 App)</div>
+                {sameAppModels.map(m => (
+                  <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, fontSize: 12, cursor: "pointer" }}>
+                    <input type="checkbox" checked={compareIds.includes(m.id)} onChange={e => {
+                      if (e.target.checked) setCompareIds([...compareIds, m.id]);
+                      else setCompareIds(compareIds.filter(id => id !== m.id));
+                    }} />
+                    <span style={{ fontWeight: 600 }}>{m.name}</span>
+                    <span style={{ color: "#64748B" }}>({m.workload})</span>
+                  </label>
+                ))}
+              </div>
+
+              {/* Comparison table */}
+              {compareIds.length > 1 && (() => {
+                const compared = compareIds.map(id => models.find(m => m.id === id)).filter(Boolean);
+                const colors = ["#1E40AF", "#DC2626", "#059669", "#7C3AED"];
+                const metricsToCompare = hasRLMetrics(compared[0]) ? [
+                  { label: "Best Efficiency", key: "best_efficiency", best: "max" },
+                  { label: "Head Coefficient", key: "head_coefficient", best: "max" },
+                  { label: "Flow Coefficient", key: "flow_coefficient" },
+                  { label: "Axial Thrust", key: "axial_thrust", best: "min" },
+                  { label: "TPLC", key: "tplc", best: "min" },
+                  { label: "Total Steps", key: "total_steps" },
+                  { label: "Model Size", key: null, getter: (m) => m.size },
+                ] : [
+                  { label: "Accuracy", key: "accuracy", best: "max" },
+                  { label: "Loss", key: "loss", best: "min" },
+                  { label: "Model Size", key: null, getter: (m) => m.size },
+                ];
+
+                return (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ padding: "8px 10px", textAlign: "left", borderBottom: "2px solid #E2E8F0", color: "#64748B" }}>지표</th>
+                        {compared.map((m, i) => (
+                          <th key={m.id} style={{ padding: "8px 10px", textAlign: "center", borderBottom: "2px solid #E2E8F0", color: colors[i % colors.length], fontWeight: 700 }}>{m.name}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {metricsToCompare.map(metric => {
+                        const vals = compared.map(m => metric.getter ? metric.getter(m) : m.metrics[metric.key]);
+                        const numVals = vals.map(v => parseFloat(v));
+                        const bestIdx = metric.best === "max" ? numVals.indexOf(Math.max(...numVals.filter(n => !isNaN(n)))) : metric.best === "min" ? numVals.indexOf(Math.min(...numVals.filter(n => !isNaN(n)))) : -1;
+                        return (
+                          <tr key={metric.label}>
+                            <td style={{ padding: "6px 10px", borderBottom: "1px solid #F1F5F9", color: "#475569" }}>{metric.label}</td>
+                            {vals.map((val, i) => (
+                              <td key={i} style={{ padding: "6px 10px", textAlign: "center", borderBottom: "1px solid #F1F5F9", fontFamily: "'JetBrains Mono',monospace", fontWeight: i === bestIdx ? 700 : 400, color: i === bestIdx ? "#166534" : "#334155", background: i === bestIdx ? "#F0FDF4" : "transparent" }}>{val}</td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                );
+              })()}
+            </>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
