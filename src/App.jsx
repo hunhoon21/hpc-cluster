@@ -420,29 +420,23 @@ export default function App() {
 
   /* ─── Workload Submission ─── */
   const addWorkload = useCallback((data) => {
-    const needs = exceedsThreshold(data.gpu, data.mem);
     const attachedTest = data.attachedLoopTest || null;
     const wl = {
       id: uid(), ...data,
-      status: needs ? "pending" : "queued",
-      needsApproval: needs,
+      status: "pending",  // v1.9: 모든 요청은 관리자 승인 대기
+      needsApproval: true,
       submitted: now(), approved: null, completedAt: null,
-      ...(needs ? { loopTest: attachedTest
+      loopTest: attachedTest
         ? { ...attachedTest, attachedToRequest: true, reviewedBy: null, reviewedAt: null }
         : { status: "pending", episodes: null, results: null, executedBy: null, executedAt: null, attachedToRequest: false, reviewedBy: null, reviewedAt: null }
-      } : {})
     };
     delete wl.attachedLoopTest;
     setWorkloads(prev => [...prev, wl]);
 
-    if (needs) {
-      flash(attachedTest
-        ? "⚠ 자원 임계치 초과 — 테스트 결과가 첨부되었습니다. 관리자 확인 후 승인됩니다."
-        : "⚠ 자원 임계치 초과 — 관리자 승인이 필요합니다."
-      );
-    } else {
-      flash("✓ 자원 임계치 미만 — 실행 대기열에 진입합니다.");
-    }
+    flash(attachedTest
+      ? "학습 요청이 제출되었습니다. 테스트 결과가 첨부되었습니다. 관리자 승인을 대기합니다."
+      : "학습 요청이 제출되었습니다. 관리자 승인을 대기합니다."
+    );
   }, [flash]);
 
   /* ─── Loop Test (minimum execution test for approval) ─── */
@@ -671,7 +665,7 @@ function HomePage({ mode, setPage, workloads, models, specs, testRuns, pending, 
             <Badge v={w.status}>{LABEL[w.status]}</Badge>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{w.name}</span>
             {w.testRunRef && <span style={{ fontSize: 11, color: "#7E22CE", background: "#F3E8FF", padding: "1px 6px", borderRadius: 4 }}>테스트 참조</span>}
-            {!w.needsApproval && w.status !== "completed" && w.status !== "rejected" && <span style={{ fontSize: 11, color: "#1E40AF", background: "#EFF6FF", padding: "1px 6px", borderRadius: 4 }}>자동승인</span>}
+            {/* v1.9: 자동승인 제거 — 모든 요청은 관리자 승인 필요 */}
             <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: "auto" }}>{w.submitted}</span>
           </div>
         ))}
@@ -2003,7 +1997,7 @@ function TrainerPage({ specs, addWorkload, flash }) {
           <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700 }}>학습 요청 완료</h3>
           {lastResult?.immediate ? (
             <>
-              <p style={{ margin: "0 0 4px", fontSize: 13, color: "#1E40AF", fontWeight: 500 }}>자원 임계치 미만 — 실행 대기열에 진입했습니다.</p>
+              <p style={{ margin: "0 0 4px", fontSize: 13, color: "#1E40AF", fontWeight: 500 }}>학습 요청이 제출되었습니다. 관리자 승인을 대기합니다.</p>
               <p style={{ margin: 0, fontSize: 12, color: "#94A3B8" }}>워크로드 목록에서 실행 상태를 확인하세요.</p>
             </>
           ) : lastResult?.attached ? (
@@ -2013,7 +2007,7 @@ function TrainerPage({ specs, addWorkload, flash }) {
             </>
           ) : (
             <>
-              <p style={{ margin: "0 0 4px", fontSize: 13, color: "#64748B" }}>자원 임계치 초과 — 관리자 승인을 대기합니다.</p>
+              <p style={{ margin: "0 0 4px", fontSize: 13, color: "#64748B" }}>관리자 승인을 대기합니다.</p>
               <p style={{ margin: 0, fontSize: 12, color: "#94A3B8" }}>→ 우측 상단에서 관리자 모드로 전환하여 승인하세요.</p>
             </>
           )}
@@ -2081,7 +2075,7 @@ function TrainerPage({ specs, addWorkload, flash }) {
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: needsApproval ? "#FEF3C7" : "#DCFCE7" }}>
               <I n="threshold" s={14} c={needsApproval ? "#92400E" : "#166534"} />
               <span style={{ fontSize: 11, fontWeight: 600, color: needsApproval ? "#92400E" : "#166534" }}>
-                {needsApproval ? "임계치 초과 — 관리자 승인 필요" : "임계치 미만 — 승인 없이 실행 가능"}
+                {needsApproval ? "관리자 승인 필요" : "모든 학습 요청은 관리자 승인이 필요합니다"}
               </span>
             </div>
           </div>
@@ -2143,7 +2137,7 @@ function TrainerPage({ specs, addWorkload, flash }) {
             </>
           ) : (
             <Btn v="primary" sz="lg" onClick={() => submitWorkload(false)}>
-              {needsApproval ? "학습 요청 제출 (승인 필요)" : "학습 요청 제출"}
+              학습 요청 제출 (관리자 승인 필요)
             </Btn>
           )}
         </div>
@@ -3022,11 +3016,11 @@ function TrainingRequestTab({ spec, specName, addWorkload, flash }) {
         </div>
         <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700 }}>학습 요청 완료</h3>
         {lastResult?.immediate ? (
-          <p style={{ margin: 0, fontSize: 13, color: "#1E40AF", fontWeight: 500 }}>자원 임계치 미만 — 실행 대기열에 진입했습니다.</p>
+          <p style={{ margin: 0, fontSize: 13, color: "#1E40AF", fontWeight: 500 }}>학습 요청이 제출되었습니다. 관리자 승인을 대기합니다.</p>
         ) : lastResult?.attached ? (
           <p style={{ margin: 0, fontSize: 13, color: "#7E22CE", fontWeight: 500 }}>테스트 결과 첨부 — 관리자 확인 후 승인됩니다.</p>
         ) : (
-          <p style={{ margin: 0, fontSize: 13, color: "#64748B" }}>자원 임계치 초과 — 관리자 승인을 대기합니다.</p>
+          <p style={{ margin: 0, fontSize: 13, color: "#64748B" }}>관리자 승인을 대기합니다.</p>
         )}
         <div style={{ marginTop: 20 }}><Btn onClick={resetAll}>새 학습 요청</Btn></div>
       </div>
@@ -3076,7 +3070,7 @@ function TrainingRequestTab({ spec, specName, addWorkload, flash }) {
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: needsApproval ? "#FEF3C7" : "#DCFCE7" }}>
             <I n="threshold" s={14} c={needsApproval ? "#92400E" : "#166534"} />
             <span style={{ fontSize: 11, fontWeight: 600, color: needsApproval ? "#92400E" : "#166534" }}>
-              {needsApproval ? "임계치 초과 — 관리자 승인 필요" : "임계치 미만 — 승인 없이 실행 가능"}
+              {needsApproval ? "관리자 승인 필요" : "모든 학습 요청은 관리자 승인이 필요합니다"}
             </span>
           </div>
         </div>
@@ -3127,7 +3121,7 @@ function TrainingRequestTab({ spec, specName, addWorkload, flash }) {
           </>
         ) : (
           <Btn v="primary" sz="lg" onClick={() => submitWorkload(false)}>
-            {needsApproval ? "학습 요청 제출 (승인 필요)" : "학습 요청 제출"}
+            학습 요청 제출 (관리자 승인 필요)
           </Btn>
         )}
       </div>
