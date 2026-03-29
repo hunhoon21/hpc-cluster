@@ -2914,24 +2914,67 @@ function ComponentLibraryInline({ library, setLibrary, flash }) {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
                 <InputField label="이름" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="컴포넌트 이름" />
                 <InputField label="이미지" value={form.image} onChange={e => setForm(f => ({ ...f, image: e.target.value }))} placeholder="registry.avatar.io/name:tag" />
+                <InputField label="클래스명 (className)" value={form.className} onChange={e => setForm(f => ({ ...f, className: e.target.value }))} placeholder="MyComponentBase" mono />
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 4 }}>타입</label>
+                  <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} style={{ display: "block", width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", boxSizing: "border-box", background: "#fff", fontFamily: "inherit" }}>
+                    <option value="component">Component</option>
+                    <option value="solver">Solver</option>
+                    <option value="environment">Environment</option>
+                    <option value="train">Train</option>
+                  </select>
+                </div>
                 <InputField label="설명" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
-                <InputField label="클래스명" value={form.className} onChange={e => setForm(f => ({ ...f, className: e.target.value }))} mono />
+                <InputField label="버전" value={form.version} onChange={e => setForm(f => ({ ...f, version: e.target.value }))} />
+              </div>
+              {/* Attributes */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>Attributes ({form.attributes.length})</label>
+                  <button onClick={() => setForm(f => ({ ...f, attributes: [...f.attributes, { name: "", type: "Any" }] }))} style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>+ 추가</button>
+                </div>
+                {form.attributes.map((a, i) => (
+                  <div key={i} style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 3 }}>
+                    <input value={a.name} onChange={e => setForm(f => ({ ...f, attributes: f.attributes.map((at, j) => j === i ? { ...at, name: e.target.value } : at) }))} placeholder="name" style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                    <input value={a.type} onChange={e => setForm(f => ({ ...f, attributes: f.attributes.map((at, j) => j === i ? { ...at, type: e.target.value } : at) }))} placeholder="type" style={{ width: 80, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", color: "#6366F1", boxSizing: "border-box" }} />
+                    <button onClick={() => setForm(f => ({ ...f, attributes: f.attributes.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 13 }}>×</button>
+                  </div>
+                ))}
+              </div>
+              {/* Methods */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>Methods ({form.methods.length})</label>
+                  <button onClick={() => setForm(f => ({ ...f, methods: [...f.methods, { name: "", params: "", returnType: "None", isAbstract: true }] }))} style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366F1", fontFamily: "inherit" }}>+ 추가</button>
+                </div>
+                {form.methods.map((m, i) => (
+                  <div key={i} style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 3 }}>
+                    <input value={m.name} onChange={e => setForm(f => ({ ...f, methods: f.methods.map((mt, j) => j === i ? { ...mt, name: e.target.value } : mt) }))} placeholder="method_name" style={{ flex: 1, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                    <input value={m.params} onChange={e => setForm(f => ({ ...f, methods: f.methods.map((mt, j) => j === i ? { ...mt, params: e.target.value } : mt) }))} placeholder="params" style={{ width: 70, padding: "4px 8px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 10, fontFamily: "'JetBrains Mono',monospace", outline: "none", boxSizing: "border-box" }} />
+                    <label style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 10, color: m.isAbstract ? "#92400E" : "#94A3B8", cursor: "pointer", whiteSpace: "nowrap" }}>
+                      <input type="checkbox" checked={!!m.isAbstract} onChange={e => setForm(f => ({ ...f, methods: f.methods.map((mt, j) => j === i ? { ...mt, isAbstract: e.target.checked } : mt) }))} style={{ width: 12, height: 12 }} />abs
+                    </label>
+                    <button onClick={() => setForm(f => ({ ...f, methods: f.methods.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", cursor: "pointer", color: "#EF4444", fontSize: 13 }}>×</button>
+                  </div>
+                ))}
               </div>
               <Btn v="success" sz="sm" icon="check" onClick={addComponent}>등록</Btn>
             </div>
           )}
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><TH>이름</TH><TH>타입</TH><TH>클래스명</TH><TH>이미지</TH><TH>설명</TH></tr></thead>
+            <thead><tr><TH>이름</TH><TH>타입</TH><TH>클래스명</TH><TH a="center">속성</TH><TH a="center">메서드</TH><TH>이미지</TH><TH>설명</TH></tr></thead>
             <tbody>
               {allLibrary.map(c => {
-                const typeColors = { component: ["#F1F5F9","#475569"], environment: ["#DBEAFE","#1E40AF"], train: ["#F3E8FF","#6B21A8"] };
+                const typeColors = { component: ["#F1F5F9","#475569"], solver: ["#FEF3C7","#92400E"], environment: ["#DBEAFE","#1E40AF"], train: ["#F3E8FF","#6B21A8"] };
                 const [tbg, tfg] = typeColors[c.type] || typeColors.component;
                 return (
                   <tr key={c.id}>
                     <TD b>{c.name}</TD>
                     <TD><span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: tbg, color: tfg }}>{c.type || "component"}</span></TD>
                     <TD><span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: "#6366F1" }}>{c.className || "—"}</span></TD>
-                    <TD><span style={{ fontSize: 12, color: "#64748B", fontFamily: "'JetBrains Mono',monospace" }}>{c.image}</span></TD>
+                    <TD a="center">{c.attributes?.length || 0}</TD>
+                    <TD a="center">{c.methods?.length || 0}</TD>
+                    <TD><span style={{ fontSize: 11, color: "#64748B", fontFamily: "'JetBrains Mono',monospace" }}>{c.image}</span></TD>
                     <TD>{c.description}</TD>
                   </tr>
                 );
