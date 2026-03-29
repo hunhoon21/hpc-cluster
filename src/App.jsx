@@ -1995,22 +1995,8 @@ function TrainerPage({ specs, addWorkload, flash }) {
             <I n={lastResult?.immediate ? "play" : "check"} s={26} c={lastResult?.immediate ? "#1D4ED8" : "#166534"} />
           </div>
           <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700 }}>학습 요청 완료</h3>
-          {lastResult?.immediate ? (
-            <>
-              <p style={{ margin: "0 0 4px", fontSize: 13, color: "#1E40AF", fontWeight: 500 }}>학습 요청이 제출되었습니다. 관리자 승인을 대기합니다.</p>
-              <p style={{ margin: 0, fontSize: 12, color: "#94A3B8" }}>워크로드 목록에서 실행 상태를 확인하세요.</p>
-            </>
-          ) : lastResult?.attached ? (
-            <>
-              <p style={{ margin: "0 0 4px", fontSize: 13, color: "#7E22CE", fontWeight: 500 }}>테스트 결과가 첨부되었습니다 — 관리자 확인 후 승인됩니다.</p>
-              <p style={{ margin: 0, fontSize: 12, color: "#94A3B8" }}>→ 우측 상단에서 관리자 모드로 전환하여 확인/승인하세요.</p>
-            </>
-          ) : (
-            <>
-              <p style={{ margin: "0 0 4px", fontSize: 13, color: "#64748B" }}>관리자 승인을 대기합니다.</p>
-              <p style={{ margin: 0, fontSize: 12, color: "#94A3B8" }}>→ 우측 상단에서 관리자 모드로 전환하여 승인하세요.</p>
-            </>
-          )}
+          <p style={{ margin: "0 0 4px", fontSize: 13, color: "#7E22CE", fontWeight: 500 }}>테스트 결과가 첨부되었습니다 — 관리자 확인 후 승인됩니다.</p>
+          <p style={{ margin: 0, fontSize: 12, color: "#94A3B8" }}>→ 관리자 모드 Trainer에서 확인/승인하세요.</p>
           <div style={{ marginTop: 20 }}>
             <Btn onClick={resetAll}>새 학습 요청</Btn>
           </div>
@@ -2086,18 +2072,17 @@ function TrainerPage({ specs, addWorkload, flash }) {
           </div>
         </Card>
 
-        {/* Step 4: 사전 테스트 (v1.6 신규) */}
-        {needsApproval && (
-          <Card style={{ marginBottom: 14, background: preTest.status === "passed" ? "#F0FDF4" : preTest.status === "running" ? "#EFF6FF" : "#FFFBEB", border: `1px solid ${preTest.status === "passed" ? "#BBF7D0" : preTest.status === "running" ? "#BFDBFE" : "#FDE68A"}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: preTest.status === "passed" ? "#166534" : "#92400E" }}>사전 테스트 (선택)</div>
-              {preTest.status === "passed" && <Badge v="passed">통과</Badge>}
-              {preTest.status === "running" && <Badge v="running">실행 중</Badge>}
-            </div>
-            <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px", lineHeight: 1.6 }}>
-              제출 전 사전 테스트를 실행하면 결과를 첨부하여 제출할 수 있습니다.
-              관리자가 별도 테스트 없이 결과를 확인하고 바로 승인할 수 있어 승인이 빨라집니다.
-            </p>
+        {/* Step 4: 사전 테스트 (필수) */}
+        <Card style={{ marginBottom: 14, background: preTest.status === "passed" ? "#F0FDF4" : preTest.status === "running" ? "#EFF6FF" : "#FFFBEB", border: `1px solid ${preTest.status === "passed" ? "#BBF7D0" : preTest.status === "running" ? "#BFDBFE" : "#FDE68A"}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: preTest.status === "passed" ? "#166534" : "#92400E" }}>사전 테스트 (필수)</div>
+            {preTest.status === "passed" && <Badge v="passed">통과</Badge>}
+            {preTest.status === "running" && <Badge v="running">실행 중</Badge>}
+          </div>
+          <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px", lineHeight: 1.6 }}>
+            학습 요청 제출 전 사전 테스트를 반드시 실행해야 합니다.
+            테스트 결과가 자동으로 첨부되며, 관리자가 결과를 확인하고 승인합니다.
+          </p>
 
             {preTest.status === "running" && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1E40AF", padding: "10px 0" }}>
@@ -2125,19 +2110,17 @@ function TrainerPage({ specs, addWorkload, flash }) {
             {preTest.status === "passed" && (
               <Btn v="ghost" icon="test" sz="sm" onClick={runPreTest}>재실행</Btn>
             )}
-          </Card>
-        )}
+        </Card>
 
-        {/* Submit buttons */}
+        {/* Submit button — 테스트 통과 후에만 제출 가능 */}
         <div style={{ display: "flex", gap: 10 }}>
-          {needsApproval && preTest.status === "passed" ? (
-            <>
-              <Btn v="primary" sz="lg" onClick={() => submitWorkload(true)}>테스트 결과 첨부하여 제출</Btn>
-              <Btn sz="lg" onClick={() => submitWorkload(false)}>미첨부 제출</Btn>
-            </>
+          {preTest.status === "passed" ? (
+            <Btn v="primary" sz="lg" onClick={() => submitWorkload(true)}>
+              학습 요청 제출 (테스트 결과 첨부)
+            </Btn>
           ) : (
-            <Btn v="primary" sz="lg" onClick={() => submitWorkload(false)}>
-              학습 요청 제출 (관리자 승인 필요)
+            <Btn sz="lg" disabled style={{ opacity: 0.5, cursor: "not-allowed" }}>
+              사전 테스트를 먼저 실행하세요
             </Btn>
           )}
         </div>
