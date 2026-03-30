@@ -1969,7 +1969,6 @@ function TrainerPage({ specs, addWorkload, flash }) {
 
   const spec = specs.find(s => s.id === selSpec);
   const gpuStr = form.gpuType + " x " + form.gpuCount;
-  const needsApproval = exceedsThreshold(gpuStr, form.mem);
 
   const runPreTest = () => {
     setPreTest({ status: "running", results: null });
@@ -2017,7 +2016,7 @@ function TrainerPage({ specs, addWorkload, flash }) {
       trainingConfig: { ...params },
       ...(attachedLoopTest ? { attachedLoopTest } : {})
     });
-    setLastResult({ immediate: !needsApproval, attached: !!attachedLoopTest });
+    setLastResult({ attached: true });
     setDone(true);
   };
 
@@ -2914,7 +2913,6 @@ function TrainingRequestTab({ spec, specName, addWorkload, flash }) {
   const [preTest, setPreTest] = useState({ status: null, results: null });
 
   const gpuStr = form.gpuType + " x " + form.gpuCount;
-  const needsApproval = exceedsThreshold(gpuStr, form.mem);
 
   const runPreTest = () => {
     setPreTest({ status: "running", results: null });
@@ -2939,13 +2937,8 @@ function TrainingRequestTab({ spec, specName, addWorkload, flash }) {
           <I n={lastResult?.immediate ? "play" : "check"} s={26} c={lastResult?.immediate ? "#1D4ED8" : "#166534"} />
         </div>
         <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700 }}>학습 요청 완료</h3>
-        {lastResult?.immediate ? (
-          <p style={{ margin: 0, fontSize: 13, color: "#1E40AF", fontWeight: 500 }}>학습 요청이 제출되었습니다. 관리자 승인을 대기합니다.</p>
-        ) : lastResult?.attached ? (
-          <p style={{ margin: 0, fontSize: 13, color: "#7E22CE", fontWeight: 500 }}>테스트 결과 첨부 — 관리자 확인 후 승인됩니다.</p>
-        ) : (
-          <p style={{ margin: 0, fontSize: 13, color: "#64748B" }}>관리자 승인을 대기합니다.</p>
-        )}
+        <p style={{ margin: 0, fontSize: 13, color: "#7E22CE", fontWeight: 500 }}>테스트 결과가 첨부되었습니다 — 관리자 확인 후 승인됩니다.</p>
+        <p style={{ margin: "6px 0 0", fontSize: 12, color: "#94A3B8" }}>관리자 모드 Trainer에서 확인/승인할 수 있습니다.</p>
         <div style={{ marginTop: 20 }}><Btn onClick={resetAll}>새 학습 요청</Btn></div>
       </div>
     </Card>
@@ -2963,7 +2956,7 @@ function TrainingRequestTab({ spec, specName, addWorkload, flash }) {
       trainingConfig: { ...params },
       ...(attachedLoopTest ? { attachedLoopTest } : {})
     });
-    setLastResult({ immediate: !needsApproval, attached: !!attachedLoopTest });
+    setLastResult({ attached: true });
     setDone(true);
   };
 
@@ -2991,11 +2984,8 @@ function TrainingRequestTab({ spec, specName, addWorkload, flash }) {
       <Card style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 700 }}>자원 요청</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: needsApproval ? "#FEF3C7" : "#DCFCE7" }}>
-            <I n="threshold" s={14} c={needsApproval ? "#92400E" : "#166534"} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: needsApproval ? "#92400E" : "#166534" }}>
-              {needsApproval ? "관리자 승인 필요" : "모든 학습 요청은 관리자 승인이 필요합니다"}
-            </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: "#EFF6FF" }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "#1E40AF" }}>관리자 승인 필요</span>
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
@@ -3005,47 +2995,46 @@ function TrainingRequestTab({ spec, specName, addWorkload, flash }) {
         </div>
       </Card>
 
-      {needsApproval && (
-        <Card style={{ marginBottom: 14, background: preTest.status === "passed" ? "#F0FDF4" : preTest.status === "running" ? "#EFF6FF" : "#FFFBEB", border: `1px solid ${preTest.status === "passed" ? "#BBF7D0" : preTest.status === "running" ? "#BFDBFE" : "#FDE68A"}` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: preTest.status === "passed" ? "#166534" : "#92400E" }}>사전 테스트 (선택)</div>
-            {preTest.status === "passed" && <Badge v="passed">통과</Badge>}
-            {preTest.status === "running" && <Badge v="running">실행 중</Badge>}
+      {/* 사전 테스트 (필수) */}
+      <Card style={{ marginBottom: 14, background: preTest.status === "passed" ? "#F0FDF4" : preTest.status === "running" ? "#EFF6FF" : "#FFFBEB", border: `1px solid ${preTest.status === "passed" ? "#BBF7D0" : preTest.status === "running" ? "#BFDBFE" : "#FDE68A"}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: preTest.status === "passed" ? "#166534" : "#92400E" }}>사전 테스트 (필수)</div>
+          {preTest.status === "passed" && <Badge v="passed">통과</Badge>}
+          {preTest.status === "running" && <Badge v="running">실행 중</Badge>}
+        </div>
+        <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px", lineHeight: 1.6 }}>
+          학습 요청 전 사전 테스트를 반드시 실행해야 합니다. 테스트 결과가 자동으로 첨부되며, 관리자가 확인 후 승인합니다.
+        </p>
+        {preTest.status === "running" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1E40AF", padding: "10px 0" }}>
+            <span style={{ width: 14, height: 14, borderRadius: 99, border: "2px solid #1D4ED8", borderTopColor: "transparent", animation: "spin .8s linear infinite", display: "inline-block" }} />
+            사전 테스트 진행 중...
           </div>
-          <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px", lineHeight: 1.6 }}>
-            사전 테스트를 실행하면 결과를 첨부하여 제출할 수 있습니다.
-          </p>
-          {preTest.status === "running" && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1E40AF", padding: "10px 0" }}>
-              <span style={{ width: 14, height: 14, borderRadius: 99, border: "2px solid #1D4ED8", borderTopColor: "transparent", animation: "spin .8s linear infinite", display: "inline-block" }} />
-              사전 테스트 진행 중...
+        )}
+        {preTest.status === "passed" && preTest.results && (
+          <div style={{ padding: 12, background: "#fff", borderRadius: 8, border: "1px solid #BBF7D0", marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 6 }}>테스트 결과</div>
+            <div style={{ fontSize: 12, color: "#334155" }}>
+              수렴: {preTest.results.convergence ? "YES" : "NO"} · 평균 보상: {preTest.results.avgReward} · 최종 보상: {preTest.results.finalReward}
             </div>
-          )}
-          {preTest.status === "passed" && preTest.results && (
-            <div style={{ padding: 12, background: "#fff", borderRadius: 8, border: "1px solid #BBF7D0", marginBottom: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 6 }}>테스트 결과</div>
-              <div style={{ fontSize: 12, color: "#334155" }}>
-                수렴: {preTest.results.convergence ? "YES" : "NO"} · 평균 보상: {preTest.results.avgReward} · 최종 보상: {preTest.results.finalReward}
-              </div>
-              {preTest.results.log && (
-                <pre style={{ background: "#0F172A", borderRadius: 6, padding: 10, fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: "#A5F3FC", margin: "8px 0 0", lineHeight: 1.6, maxHeight: 120, overflow: "auto" }}>{preTest.results.log}</pre>
-              )}
-            </div>
-          )}
-          {!preTest.status && <Btn v="accent" icon="test" onClick={runPreTest}>사전 테스트 실행</Btn>}
-          {preTest.status === "passed" && <Btn v="ghost" icon="test" sz="sm" onClick={runPreTest}>재실행</Btn>}
-        </Card>
-      )}
+            {preTest.results.log && (
+              <pre style={{ background: "#0F172A", borderRadius: 6, padding: 10, fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: "#A5F3FC", margin: "8px 0 0", lineHeight: 1.6, maxHeight: 120, overflow: "auto" }}>{preTest.results.log}</pre>
+            )}
+          </div>
+        )}
+        {!preTest.status && <Btn v="accent" icon="test" onClick={runPreTest}>사전 테스트 실행</Btn>}
+        {preTest.status === "passed" && <Btn v="ghost" icon="test" sz="sm" onClick={runPreTest}>재실행</Btn>}
+      </Card>
 
+      {/* 제출 버튼 — 테스트 통과 후에만 활성화 */}
       <div style={{ display: "flex", gap: 10 }}>
-        {needsApproval && preTest.status === "passed" ? (
-          <>
-            <Btn v="primary" sz="lg" onClick={() => submitWorkload(true)}>테스트 결과 첨부하여 제출</Btn>
-            <Btn sz="lg" onClick={() => submitWorkload(false)}>미첨부 제출</Btn>
-          </>
+        {preTest.status === "passed" ? (
+          <Btn v="primary" sz="lg" onClick={() => submitWorkload(true)}>
+            학습 요청 제출 (테스트 결과 첨부)
+          </Btn>
         ) : (
-          <Btn v="primary" sz="lg" onClick={() => submitWorkload(false)}>
-            학습 요청 제출 (관리자 승인 필요)
+          <Btn sz="lg" style={{ opacity: 0.5, cursor: "not-allowed" }} disabled>
+            사전 테스트를 먼저 실행하세요
           </Btn>
         )}
       </div>
