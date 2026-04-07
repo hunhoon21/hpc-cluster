@@ -369,7 +369,7 @@ export default function App() {
       });
       const next = sorted[0];
       if (!next) return prev;
-      return prev.map(w => w.id === next.id ? { ...w, status: "running" } : w);
+      return prev.map(w => w.id === next.id ? { ...w, status: "running", startedAt: Date.now() } : w);
     });
   }, []);
 
@@ -447,7 +447,11 @@ export default function App() {
         : { status: "pending", episodes: null, results: null, executedBy: null, executedAt: null, attachedToRequest: false, reviewedBy: null, reviewedAt: null }
     };
     delete wl.attachedLoopTest;
-    setWorkloads(prev => [...prev, wl]);
+    setWorkloads(prev => {
+      const sameSpecCount = prev.filter(w => w.specId === data.specId).length;
+      const suffix = sameSpecCount > 0 ? `-${sameSpecCount + 1}` : "";
+      return [...prev, { ...wl, name: wl.name + suffix }];
+    });
 
     flash(attachedTest
       ? "학습 요청이 제출되었습니다. 테스트 결과가 첨부되었습니다. 관리자 승인을 대기합니다."
@@ -2096,7 +2100,7 @@ function TrainerAdminPage({ workloads, setWorkloads, models, setModels, specs, l
       </div>
 
       {tab === "requests" && <ApprovalPage pending={pending} approveWorkload={approveWorkload} rejectWorkload={rejectWorkload} reviewLoopTest={reviewLoopTest} setModal={setModal} />}
-      {tab === "workloads" && <WorkloadsPageWithResources workloads={workloads} specs={specs} />}
+      {tab === "workloads" && <WorkloadsPageWithResources workloads={workloads} specs={specs} library={library} />}
 
       {tab === "solvers" && <SolverManagementTab library={library} setLibrary={setLibrary} flash={flash} />}
       {tab === "models" && <ModelSelectionTab models={models} setModels={setModels} specs={specs} flash={flash} />}
@@ -2105,10 +2109,29 @@ function TrainerAdminPage({ workloads, setWorkloads, models, setModels, specs, l
 }
 
 /* ═══════════════════════ WORKLOADS WITH PER-COMPONENT RESOURCES ═══════════════════════ */
-function WorkloadsPageWithResources({ workloads, specs }) {
-  const [selectedWL, setSelectedWL] = useState(null);
+function WorkloadsPageWithResources({ workloads, specs, library }) {
+  const [selectedWLId, setSelectedWLId] = useState(null);
+  const selectedWL = workloads.find(w => w.id === selectedWLId) || null;
   const [metricsTab, setMetricsTab] = useState("progress");
   const [compareIds, setCompareIds] = useState([]);
+  const [execProgress, setExecProgress] = useState(0);
+
+  useEffect(() => {
+    if (!selectedWL || selectedWL.status !== "running") {
+      setExecProgress(selectedWL?.status === "completed" ? 1.0 : 0);
+      return;
+    }
+    const startedAt = selectedWL.startedAt || Date.now();
+    const update = () => {
+      const elapsed = (Date.now() - startedAt) / 10000;
+      setExecProgress(Math.min(elapsed, 1.0));
+      if (elapsed >= 1.0) clearInterval(interval);
+    };
+    update();
+    const interval = setInterval(update, 500);
+    return () => clearInterval(interval);
+  }, [selectedWL?.id, selectedWL?.status]);
+
   const clusterRes = computeClusterResources(workloads);
 
   const generateSimulatedMetrics = (workloadId, totalSteps = 500) => {
@@ -2263,7 +2286,7 @@ function WorkloadsPageWithResources({ workloads, specs }) {
           <thead><tr><TH>워크로드</TH><TH a="center">상태</TH><TH a="center">우선순위</TH><TH>자원</TH><TH>신청자</TH><TH>신청일시</TH></tr></thead>
           <tbody>
             {[...workloads].reverse().map(w => (
-              <tr key={w.id} onClick={() => { setSelectedWL(w); setMetricsTab("progress"); setCompareIds([]); }} style={{ cursor: "pointer", background: selectedWL?.id === w.id ? "#F1F5F9" : "transparent", transition: "background .12s" }}>
+              <tr key={w.id} onClick={() => { setSelectedWLId(w.id); setMetricsTab("progress"); setCompareIds([]); }} style={{ cursor: "pointer", background: selectedWL?.id === w.id ? "#F1F5F9" : "transparent", transition: "background .12s" }}>
                 <TD b>{w.name}</TD>
                 <TD a="center">
                   {w.status === "running" ? (
@@ -2298,7 +2321,7 @@ function WorkloadsPageWithResources({ workloads, specs }) {
               <div style={{ display: "flex", gap: 6 }}>
                 <button onClick={() => setMetricsTab("progress")} style={tabBtnStyle("progress")}>학습 진행</button>
                 <button onClick={() => setMetricsTab("compare")} style={tabBtnStyle("compare")}>실험 비교</button>
-                <button onClick={() => setSelectedWL(null)} style={closeBtnStyle}>✕</button>
+                <button onClick={() => setSelectedWLId(null)} style={closeBtnStyle}>✕</button>
               </div>
             </div>
 
@@ -2323,18 +2346,19 @@ function WorkloadsPageWithResources({ workloads, specs }) {
               <p style={{ fontSize: 11, color: "#94A3B8", margin: "0 0 10px" }}>각 컴포넌트가 순서대로 실행되며, 개별 자원이 할당됩니다.</p>
               {(() => {
                 const isRunning = selectedWL?.status === "running";
-                const progress = isRunning ? 0.6 : 1.0;
-                const components = [
-                  { order: 1, name: "rcp-setup", type: "component", gpu: "V100 x 1", memAlloc: "16GB", memUsed: "12.3", usage: 77 },
-                  { order: 2, name: "impeller-agent", type: "component", gpu: "V100 x 1", memAlloc: "8GB", memUsed: "5.8", usage: 73 },
-                  { order: 3, name: "diffuser-agent", type: "component", gpu: "V100 x 1", memAlloc: "8GB", memUsed: "5.6", usage: 70 },
-                  { order: 4, name: "multi-agent", type: "component", gpu: "V100 x 1", memAlloc: "16GB", memUsed: "10.1", usage: 63 },
-                  { order: 5, name: "make-blade", type: "solver", gpu: "V100 x 1", memAlloc: "8GB", memUsed: "5.2", usage: 65 },
-                  { order: 6, name: "mesh-generator", type: "solver", gpu: "V100 x 1", memAlloc: "8GB", memUsed: "6.1", usage: 76 },
-                  { order: 7, name: "run-cfx", type: "solver", gpu: "A100 x 2", memAlloc: "32GB", memUsed: "24.1", usage: 75 },
-                  { order: 8, name: "environment", type: "environment", gpu: "A100 x 2", memAlloc: "64GB", memUsed: "48.2", usage: 75 },
-                  { order: 9, name: "train", type: "train", gpu: "A100 x 4", memAlloc: "128GB", memUsed: "98.5", usage: 77 },
-                ];
+                const progress = isRunning ? execProgress : 1.0;
+                const spec = specs.find(s => s.id === selectedWL.specId);
+                const specComps = spec?.tasks?.[0]?.components || [];
+                const components = specComps
+                  .sort((a, b) => a.order - b.order)
+                  .map(c => ({
+                    order: c.order,
+                    name: c.name,
+                    type: library?.find(l => l.id === c.libraryRef)?.type || "component",
+                    gpu: `${c.gpu_type} x ${c.gpu_count}`,
+                    memAlloc: c.mem,
+                  }));
+                if (components.length === 0) return <div style={{ padding: 20, textAlign: "center", color: "#94A3B8", fontSize: 13 }}>컴포넌트 정보 없음</div>;
                 const activeIdx = isRunning ? Math.floor(components.length * progress) : components.length;
                 const statusColors = { completed: ["#DCFCE7","#166534"], running: ["#DBEAFE","#1E40AF"], waiting: ["#F1F5F9","#94A3B8"] };
                 const typeColors = { component: "#475569", solver: "#92400E", environment: "#1E40AF", train: "#6B21A8" };
@@ -2362,18 +2386,23 @@ function WorkloadsPageWithResources({ workloads, specs }) {
                         const st = i < activeIdx ? "completed" : i === activeIdx ? "running" : "waiting";
                         const borderColor = st === "running" ? "#1E40AF" : st === "completed" ? "#BBF7D0" : "#E2E8F0";
                         const typeBg = { component: "#F1F5F9", solver: "#FEF3C7", environment: "#DBEAFE", train: "#F3E8FF" };
+                        const seed = (selectedWL?.id || "").charCodeAt(0) + c.order;
+                        const rng = Math.sin(seed * 9301) * 49297; const r = rng - Math.floor(rng);
+                        const simUsage = Math.floor(60 + r * 20);
+                        const memAllocNum = parseInt(c.memAlloc) || 0;
+                        const simMemUsed = (memAllocNum * (0.7 + r * 0.15)).toFixed(1);
                         return (
                           <div key={c.name} style={{ padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${borderColor}`, fontSize: 11, background: st === "waiting" ? "#FAFAFA" : "#fff", opacity: st === "waiting" ? 0.6 : 1 }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                               <span style={{ fontWeight: 700, color: "#0F172A" }}>{c.order}. {c.name}</span>
                               <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: typeBg[c.type], color: typeColors[c.type], fontWeight: 600 }}>{c.type}</span>
                             </div>
-                            <div style={{ color: "#64748B", marginBottom: 4 }}>{c.gpu} · {c.memUsed} / {c.memAlloc}</div>
+                            <div style={{ color: "#64748B", marginBottom: 4 }}>{c.gpu} · {st === "waiting" ? "—" : simMemUsed} / {c.memAlloc}</div>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               <div style={{ flex: 1, background: "#E2E8F0", borderRadius: 4, height: 6 }}>
-                                <div style={{ width: (st === "waiting" ? 0 : c.usage) + "%", background: st === "running" ? "#1E40AF" : c.usage > 80 ? "#EF4444" : "#059669", borderRadius: 4, height: 6, transition: "width .3s" }} />
+                                <div style={{ width: (st === "waiting" ? 0 : simUsage) + "%", background: st === "running" ? "#1E40AF" : simUsage > 80 ? "#EF4444" : "#059669", borderRadius: 4, height: 6, transition: "width .3s" }} />
                               </div>
-                              <span style={{ fontSize: 10, color: "#64748B", minWidth: 28, textAlign: "right" }}>{st === "waiting" ? "—" : c.usage + "%"}</span>
+                              <span style={{ fontSize: 10, color: "#64748B", minWidth: 28, textAlign: "right" }}>{st === "waiting" ? "—" : simUsage + "%"}</span>
                             </div>
                             <div style={{ marginTop: 4, fontSize: 10, color: st === "completed" ? "#166534" : st === "running" ? "#1E40AF" : "#94A3B8", fontWeight: 600 }}>
                               {st === "completed" ? "✓ 완료" : st === "running" ? "● 실행 중" : "대기"}
@@ -2407,7 +2436,7 @@ function WorkloadsPageWithResources({ workloads, specs }) {
               <div style={{ display: "flex", gap: 6 }}>
                 <button onClick={() => setMetricsTab("progress")} style={tabBtnStyle("progress")}>학습 진행</button>
                 <button onClick={() => setMetricsTab("compare")} style={tabBtnStyle("compare")}>실험 비교</button>
-                <button onClick={() => setSelectedWL(null)} style={closeBtnStyle}>✕</button>
+                <button onClick={() => setSelectedWLId(null)} style={closeBtnStyle}>✕</button>
               </div>
             </div>
             <div style={{ marginBottom: 14, padding: "10px 14px", background: "#F8FAFC", borderRadius: 8 }}>
