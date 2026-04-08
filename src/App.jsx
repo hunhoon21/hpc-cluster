@@ -731,7 +731,6 @@ function WorkflowDiagram({ components, workflow, onNodeClick, selectedId, connec
         {components.map(c => {
           const pos = positions[c.id];
           if (!pos) return null;
-          const res = `${c.gpu_type || c.gpuType || ""} x ${c.gpu_count || c.gpuCount || ""}, ${c.mem}`;
           const isSelected = c.id === selectedId;
           const isConnectSource = c.id === connectSourceId;
           return (
@@ -742,13 +741,9 @@ function WorkflowDiagram({ components, workflow, onNodeClick, selectedId, connec
                 stroke={isConnectSource ? "#6366F1" : isSelected ? "#F59E0B" : "#1E40AF"}
                 strokeWidth={isSelected || isConnectSource ? 2.5 : 1.5}
                 style={{ pointerEvents: "none" }} />
-              <text x={pos.x + nodeW / 2} y={pos.y + 22} textAnchor="middle"
+              <text x={pos.x + nodeW / 2} y={pos.y + 32} textAnchor="middle"
                 fontSize={12} fontWeight="bold" fill="#0F172A" style={{ pointerEvents: "none" }}>
                 {(c.name || "unnamed").slice(0, 16)}
-              </text>
-              <text x={pos.x + nodeW / 2} y={pos.y + 42} textAnchor="middle"
-                fontSize={9} fill="#64748B" style={{ pointerEvents: "none" }}>
-                {res}
               </text>
             </g>
           );
@@ -1483,11 +1478,6 @@ function BuilderPage({ flash, addSpec, updateSpec, specs, library, setLibrary, a
                         <InputField label="Docker 이미지" value={selComp.image} onChange={e => setComp(selTI, selCI, "image", e.target.value)} mono />
                         <InputField label="태그" value={selComp.tag} onChange={e => setComp(selTI, selCI, "tag", e.target.value)} mono />
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
-                        <InputField label="GPU 유형" value={selComp.gpuType} onChange={e => setComp(selTI, selCI, "gpuType", e.target.value)} />
-                        <InputField label="GPU 수" value={selComp.gpuCount} onChange={e => setComp(selTI, selCI, "gpuCount", e.target.value)} />
-                        <InputField label="메모리" value={selComp.mem} onChange={e => setComp(selTI, selCI, "mem", e.target.value)} />
-                      </div>
 
                       {/* Attributes */}
                       <div style={{ marginBottom: 14 }}>
@@ -1725,7 +1715,7 @@ function ApprovalPage({ pending, approveWorkload, rejectWorkload, reviewLoopTest
                   <span style={{ fontSize: 11, fontWeight: 600, color: "#7E22CE", background: "#F3E8FF", padding: "2px 8px", borderRadius: 4 }}>테스트 결과 첨부</span>
                 </div>
                 <div style={{ fontSize: 12, color: "#64748B", marginTop: 3 }}>
-                  신청자: {w.requester} · {w.submitted} · {w.gpu}, {w.mem}
+                  신청자: {w.requester} · {w.submitted}
                 </div>
               </div>
               <Badge v="pending">승인대기</Badge>
@@ -1777,7 +1767,6 @@ function ApprovalPage({ pending, approveWorkload, rejectWorkload, reviewLoopTest
                     <p><b>ID:</b> <span style={{ fontFamily: "'JetBrains Mono',monospace", color: "#64748B" }}>{w.id}</span></p>
                     <p><b>스펙:</b> {w.specId}</p>
                     <p><b>신청자:</b> {w.requester}</p>
-                    <p><b>GPU:</b> {w.gpu} · <b>메모리:</b> {w.mem}</p>
                     <p><b>신청일시:</b> {w.submitted}</p>
                     <p><b>사전 테스트:</b> {lt?.status === "passed" ? "통과" : "미완료"}</p>
                     <p><b>관리자 확인:</b> {lt?.reviewedBy ? `${lt.reviewedBy} (${lt.reviewedAt})` : "미확인"}</p>
@@ -1971,20 +1960,6 @@ function TrainingRequestTab({ spec, specName, addWorkload, flash }) {
           <InputField label="배치 크기" value={params.batchSize} onChange={e => setParams(p => ({ ...p, batchSize: e.target.value }))} />
           <InputField label="감가율" value={params.discountFactor} onChange={e => setParams(p => ({ ...p, discountFactor: e.target.value }))} />
           <InputField label="최대 스텝" value={params.maxSteps} onChange={e => setParams(p => ({ ...p, maxSteps: e.target.value }))} />
-        </div>
-      </Card>
-
-      <Card style={{ marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>자원 요청</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: "#EFF6FF" }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: "#1E40AF" }}>관리자 승인 필요</span>
-          </div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-          <InputField label="GPU 유형" value={form.gpuType} onChange={e => setForm(f => ({ ...f, gpuType: e.target.value }))} />
-          <InputField label="GPU 수" value={form.gpuCount} onChange={e => setForm(f => ({ ...f, gpuCount: e.target.value }))} />
-          <InputField label="메모리" value={form.mem} onChange={e => setForm(f => ({ ...f, mem: e.target.value }))} />
         </div>
       </Card>
 
@@ -2283,7 +2258,7 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
 
       <Card>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr><TH>워크로드</TH><TH a="center">상태</TH><TH a="center">우선순위</TH><TH>자원</TH><TH>신청자</TH><TH>신청일시</TH></tr></thead>
+          <thead><tr><TH>워크로드</TH><TH a="center">상태</TH><TH a="center">우선순위</TH><TH>신청자</TH><TH>신청일시</TH></tr></thead>
           <tbody>
             {[...workloads].reverse().map(w => (
               <tr key={w.id} onClick={() => { setSelectedWLId(w.id); setMetricsTab("progress"); setCompareIds([]); }} style={{ cursor: "pointer", background: selectedWL?.id === w.id ? "#F1F5F9" : "transparent", transition: "background .12s" }}>
@@ -2297,7 +2272,6 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
                   ) : <Badge v={w.status}>{LABEL[w.status]}</Badge>}
                 </TD>
                 <TD a="center"><Badge v={w.priority}>{LABEL[w.priority]}</Badge></TD>
-                <TD>{w.gpu}, {w.mem}</TD>
                 <TD>{w.requester}</TD>
                 <TD>{w.submitted}</TD>
               </tr>
@@ -2369,7 +2343,7 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
             {/* Per-component execution status + resources */}
             <div style={{ marginTop: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>컴포넌트별 실행 현황</div>
-              <p style={{ fontSize: 11, color: "#94A3B8", margin: "0 0 10px" }}>각 컴포넌트가 순서대로 실행되며, 개별 자원이 할당됩니다.</p>
+              <p style={{ fontSize: 11, color: "#94A3B8", margin: "0 0 10px" }}>각 컴포넌트가 순서대로 실행됩니다.</p>
               {(() => {
                 const isRunning = selectedWL?.status === "running";
                 const progress = isRunning ? execProgress : 1.0;
@@ -2448,18 +2422,10 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
 
                 const statusColors = { completed: ["#DCFCE7","#166534"], running: ["#DBEAFE","#1E40AF"], waiting: ["#F1F5F9","#94A3B8"] };
                 const typeColors = { component: "#475569", solver: "#92400E", environment: "#1E40AF", train: "#6B21A8" };
-                const gpuTotals = {};
-                components.forEach(c => { gpuTotals[c.gpuType] = (gpuTotals[c.gpuType] || 0) + c.gpuCount; });
-                const totalMem = components.reduce((s, c) => s + (parseInt(c.memAlloc) || 0), 0);
-                const totalCpu = components.reduce((s, c) => s + c.cpuCores, 0);
-                const gpuSummary = Object.entries(gpuTotals).map(([t, n]) => `${t} x ${n}`).join(" + ");
                 return (
                   <>
-                    {/* Workload resource summary */}
+                    {/* Workload progress summary */}
                     <div style={{ display: "flex", gap: 16, padding: "8px 14px", background: "#F1F5F9", borderRadius: 8, fontSize: 12, marginBottom: 10, flexWrap: "wrap" }}>
-                      <span><span style={{ color: "#64748B" }}>총 GPU:</span> <strong>{gpuSummary}</strong></span>
-                      <span><span style={{ color: "#64748B" }}>총 메모리:</span> <strong>{totalMem}GB</strong></span>
-                      <span><span style={{ color: "#64748B" }}>총 CPU:</span> <strong>{totalCpu}코어</strong></span>
                       <span><span style={{ color: "#64748B" }}>진행:</span> <strong>{Math.min(activeBatchIdx, batches.length)}/{batches.length} 단계</strong></span>
                     </div>
                     {/* Execution flow — batch-aware with parallel groups */}
@@ -2521,7 +2487,7 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
                               <span style={{ fontWeight: 700, color: "#0F172A" }}>{c.order}. {c.name}</span>
                               <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: typeBg[c.type], color: typeColors[c.type], fontWeight: 600 }}>{c.type}</span>
                             </div>
-                            <div style={{ color: "#94A3B8", marginBottom: 5, fontSize: 10 }}>{c.gpu} · {c.memAlloc} · {c.cpuCores}코어</div>
+                            <div style={{ color: "#94A3B8", marginBottom: 5, fontSize: 10 }}></div>
                             {st !== "waiting" ? (
                               <div style={{ marginBottom: 3 }}>
                                 {renderBar("GPU", simGpu, gpuColor)}
