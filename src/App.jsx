@@ -2355,15 +2355,30 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
                     order: c.order,
                     name: c.name,
                     type: library?.find(l => l.id === c.libraryRef)?.type || "component",
+                    gpuType: c.gpu_type,
+                    gpuCount: c.gpu_count,
                     gpu: `${c.gpu_type} x ${c.gpu_count}`,
                     memAlloc: c.mem,
+                    cpuCores: (c.gpu_count || 1) * 4,
                   }));
                 if (components.length === 0) return <div style={{ padding: 20, textAlign: "center", color: "#94A3B8", fontSize: 13 }}>컴포넌트 정보 없음</div>;
                 const activeIdx = isRunning ? Math.floor(components.length * progress) : components.length;
                 const statusColors = { completed: ["#DCFCE7","#166534"], running: ["#DBEAFE","#1E40AF"], waiting: ["#F1F5F9","#94A3B8"] };
                 const typeColors = { component: "#475569", solver: "#92400E", environment: "#1E40AF", train: "#6B21A8" };
+                const gpuTotals = {};
+                components.forEach(c => { gpuTotals[c.gpuType] = (gpuTotals[c.gpuType] || 0) + c.gpuCount; });
+                const totalMem = components.reduce((s, c) => s + (parseInt(c.memAlloc) || 0), 0);
+                const totalCpu = components.reduce((s, c) => s + c.cpuCores, 0);
+                const gpuSummary = Object.entries(gpuTotals).map(([t, n]) => `${t} x ${n}`).join(" + ");
                 return (
                   <>
+                    {/* Workload resource summary */}
+                    <div style={{ display: "flex", gap: 16, padding: "8px 14px", background: "#F1F5F9", borderRadius: 8, fontSize: 12, marginBottom: 10, flexWrap: "wrap" }}>
+                      <span><span style={{ color: "#64748B" }}>총 GPU:</span> <strong>{gpuSummary}</strong></span>
+                      <span><span style={{ color: "#64748B" }}>총 메모리:</span> <strong>{totalMem}GB</strong></span>
+                      <span><span style={{ color: "#64748B" }}>총 CPU:</span> <strong>{totalCpu}코어</strong></span>
+                      <span><span style={{ color: "#64748B" }}>진행:</span> <strong>{Math.min(activeIdx, components.length)}/{components.length} 컴포넌트</strong></span>
+                    </div>
                     {/* Execution flow */}
                     <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
                       {components.map((c, i) => {
@@ -2387,24 +2402,40 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
                         const borderColor = st === "running" ? "#1E40AF" : st === "completed" ? "#BBF7D0" : "#E2E8F0";
                         const typeBg = { component: "#F1F5F9", solver: "#FEF3C7", environment: "#DBEAFE", train: "#F3E8FF" };
                         const seed = (selectedWL?.id || "").charCodeAt(0) + c.order;
-                        const rng = Math.sin(seed * 9301) * 49297; const r = rng - Math.floor(rng);
-                        const simUsage = Math.floor(60 + r * 20);
-                        const memAllocNum = parseInt(c.memAlloc) || 0;
-                        const simMemUsed = (memAllocNum * (0.7 + r * 0.15)).toFixed(1);
+                        const rng1 = Math.sin(seed * 9301) * 49297; const r1 = rng1 - Math.floor(rng1);
+                        const rng2 = Math.sin(seed * 7919 + 1) * 49297; const r2 = rng2 - Math.floor(rng2);
+                        const rng3 = Math.sin(seed * 6271 + 2) * 49297; const r3 = rng3 - Math.floor(rng3);
+                        const simGpu = Math.floor(55 + r1 * 30);
+                        const simMem = Math.floor(60 + r2 * 25);
+                        const simCpu = Math.floor(20 + r3 * 40);
+                        const gpuColor = c.gpuType === "A100" ? "#1D4ED8" : "#7E22CE";
+                        const isActive = st !== "waiting";
+                        const renderBar = (label, value, color) => (
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
+                            <span style={{ width: 28, fontSize: 9, color: "#94A3B8", fontWeight: 600 }}>{label}</span>
+                            <div style={{ flex: 1, background: "#E2E8F0", borderRadius: 3, height: 4 }}>
+                              <div style={{ width: (isActive ? value : 0) + "%", background: color, borderRadius: 3, height: 4, transition: "width .3s" }} />
+                            </div>
+                            <span style={{ fontSize: 9, color: "#64748B", minWidth: 26, textAlign: "right" }}>{isActive ? value + "%" : "—"}</span>
+                          </div>
+                        );
                         return (
-                          <div key={c.name} style={{ padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${borderColor}`, fontSize: 11, background: st === "waiting" ? "#FAFAFA" : "#fff", opacity: st === "waiting" ? 0.6 : 1 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                          <div key={c.name} style={{ padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${borderColor}`, fontSize: 11, background: st === "waiting" ? "#FAFAFA" : "#fff", opacity: st === "waiting" ? 0.7 : 1 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                               <span style={{ fontWeight: 700, color: "#0F172A" }}>{c.order}. {c.name}</span>
                               <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: typeBg[c.type], color: typeColors[c.type], fontWeight: 600 }}>{c.type}</span>
                             </div>
-                            <div style={{ color: "#64748B", marginBottom: 4 }}>{c.gpu} · {st === "waiting" ? "—" : simMemUsed} / {c.memAlloc}</div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <div style={{ flex: 1, background: "#E2E8F0", borderRadius: 4, height: 6 }}>
-                                <div style={{ width: (st === "waiting" ? 0 : simUsage) + "%", background: st === "running" ? "#1E40AF" : simUsage > 80 ? "#EF4444" : "#059669", borderRadius: 4, height: 6, transition: "width .3s" }} />
+                            <div style={{ color: "#94A3B8", marginBottom: 5, fontSize: 10 }}>{c.gpu} · {c.memAlloc} · {c.cpuCores}코어</div>
+                            {st !== "waiting" ? (
+                              <div style={{ marginBottom: 3 }}>
+                                {renderBar("GPU", simGpu, gpuColor)}
+                                {renderBar("Mem", simMem, "#B45309")}
+                                {renderBar("CPU", simCpu, "#047857")}
                               </div>
-                              <span style={{ fontSize: 10, color: "#64748B", minWidth: 28, textAlign: "right" }}>{st === "waiting" ? "—" : simUsage + "%"}</span>
-                            </div>
-                            <div style={{ marginTop: 4, fontSize: 10, color: st === "completed" ? "#166534" : st === "running" ? "#1E40AF" : "#94A3B8", fontWeight: 600 }}>
+                            ) : (
+                              <div style={{ padding: "6px 0", textAlign: "center", color: "#CBD5E1", fontSize: 10 }}>자원 미할당</div>
+                            )}
+                            <div style={{ fontSize: 10, color: st === "completed" ? "#166534" : st === "running" ? "#1E40AF" : "#94A3B8", fontWeight: 600 }}>
                               {st === "completed" ? "✓ 완료" : st === "running" ? "● 실행 중" : "대기"}
                             </div>
                           </div>
