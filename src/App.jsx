@@ -2309,8 +2309,29 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
       {/* Training Progress Tab */}
       {selectedWL && metricsTab === "progress" && (selectedWL.status === "completed" || selectedWL.status === "running") && (() => {
         const metrics = generateSimulatedMetrics(selectedWL.id);
-        const wlSteps = selectedWL.status === "running" ? Math.max(1, Math.floor(metrics.length * execProgress)) : metrics.length;
-        const visibleMetrics = metrics.slice(0, wlSteps);
+        // Charts only draw while "train" component is running/completed
+        // Build batches to find train's batch index
+        const spec = specs.find(s => s.id === selectedWL.specId);
+        const specComps = (spec?.tasks?.[0]?.components || []).sort((a, b) => a.order - b.order);
+        const trainComp = specComps.find(c => {
+          const t = library?.find(l => l.id === c.libraryRef)?.type;
+          return t === "train";
+        });
+        const trainName = trainComp?.name || specComps[specComps.length - 1]?.name;
+        // Reuse batch logic to find train's batch index
+        const mc = spec?.classSpec?.relationships?.method_calls || [];
+        const pGroups = {};
+        mc.forEach(m => { const k = m.caller + ":" + m.callerMethod; if (!pGroups[k]) pGroups[k] = []; const sc = specComps.find(x => x.id === m.callee); if (sc) pGroups[k].push(sc.name); });
+        const pgList = Object.values(pGroups).filter(g => g.length >= 2);
+        const chartBatches = []; const placed = new Set();
+        for (const c of specComps) { if (placed.has(c.name)) continue; const pg = pgList.find(g => g.includes(c.name)); if (pg) { chartBatches.push(pg.filter(n => !placed.has(n))); pg.forEach(n => placed.add(n)); } else { chartBatches.push([c.name]); placed.add(c.name); } }
+        const trainBatchIdx = chartBatches.findIndex(b => b.includes(trainName));
+        const trainBatchStart = trainBatchIdx >= 0 ? trainBatchIdx / chartBatches.length : 0.85;
+        // train이 실행 중이거나 완료인 경우에만 차트 표시
+        const isTrainActive = selectedWL.status === "completed" || (selectedWL.status === "running" && execProgress >= trainBatchStart);
+        const trainProgress = selectedWL.status === "completed" ? 1.0 : Math.min(1, (execProgress - trainBatchStart) / (1 - trainBatchStart));
+        const wlSteps = selectedWL.status === "running" ? Math.max(1, Math.floor(metrics.length * Math.max(0, trainProgress))) : metrics.length;
+        const visibleMetrics = isTrainActive ? metrics.slice(0, wlSteps) : [];
         return (
           <Card style={{ marginTop: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -2325,20 +2346,27 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
               </div>
             </div>
 
-            {/* 4 metric charts in 2x2 grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+            {/* 4 metric charts in 2x2 grid — only when train component is active */}
+            {!isTrainActive && selectedWL.status === "running" && (
+              <div style={{ padding: "30px 20px", textAlign: "center", color: "#94A3B8", fontSize: 13, border: "1px dashed #E2E8F0", borderRadius: 10, marginBottom: 14 }}>
+                학습 메트릭은 <strong>train</strong> 컴포넌트 실행 시 표시됩니다. 현재 사전 처리 단계 진행 중...
+              </div>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14, ...(isTrainActive ? {} : { display: "none" }) }}>
               {renderMetricChart("Reward", visibleMetrics, "reward", -1, 1, "#1E40AF", null)}
               {renderMetricChart("Efficiency (%)", visibleMetrics, "efficiency", 50, 100, "#059669", 83.9)}
               {renderMetricChart("Critic Loss", visibleMetrics.filter(m => m.critic_loss !== undefined), "critic_loss", 0, 6, "#DC2626", null)}
               {renderMetricChart("Predict Q-value", visibleMetrics.filter(m => m.predict_q_value !== undefined), "predict_q_value", -1, 3, "#7C3AED", null)}
             </div>
 
-            {/* Summary bar */}
-            <div style={{ display: "flex", gap: 16, padding: "12px 16px", background: "#F8FAFC", borderRadius: 10, fontSize: 13, marginBottom: 14 }}>
-              <div><span style={{ color: "#64748B" }}>Best Efficiency:</span> <strong>{visibleMetrics[visibleMetrics.length-1]?.best_efficiency?.toFixed(1)}%</strong></div>
-              <div><span style={{ color: "#64748B" }}>Step:</span> <strong>{wlSteps}</strong></div>
-              <div><span style={{ color: "#64748B" }}>Latest Reward:</span> <strong>{visibleMetrics[visibleMetrics.length-1]?.reward?.toFixed(3)}</strong></div>
-            </div>
+            {/* Summary bar — only when train is active */}
+            {isTrainActive && visibleMetrics.length > 0 && (
+              <div style={{ display: "flex", gap: 16, padding: "12px 16px", background: "#F8FAFC", borderRadius: 10, fontSize: 13, marginBottom: 14 }}>
+                <div><span style={{ color: "#64748B" }}>Best Efficiency:</span> <strong>{visibleMetrics[visibleMetrics.length-1]?.best_efficiency?.toFixed(1)}%</strong></div>
+                <div><span style={{ color: "#64748B" }}>Step:</span> <strong>{wlSteps}</strong></div>
+                <div><span style={{ color: "#64748B" }}>Latest Reward:</span> <strong>{visibleMetrics[visibleMetrics.length-1]?.reward?.toFixed(3)}</strong></div>
+              </div>
+            )}
 
             {/* Per-component execution status + resources */}
             <div style={{ marginTop: 14 }}>
