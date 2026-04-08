@@ -2362,7 +2362,58 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
                     cpuCores: (c.gpu_count || 1) * 4,
                   }));
                 if (components.length === 0) return <div style={{ padding: 20, textAlign: "center", color: "#94A3B8", fontSize: 13 }}>컴포넌트 정보 없음</div>;
-                const activeIdx = isRunning ? Math.floor(components.length * progress) : components.length;
+
+                // Build execution batches from composition DAG
+                // TODO: Replace with dynamic DAG analysis from classSpec when available
+                const buildBatches = (comps, classSpec) => {
+                  if (!classSpec) return comps.map(c => [c.name]); // fallback: sequential
+                  const mc = classSpec.relationships?.method_calls || [];
+                  // Group: callees called by the same caller+method run in parallel
+                  const parallelGroups = {};
+                  mc.forEach(m => {
+                    const key = m.caller + ":" + m.callerMethod;
+                    if (!parallelGroups[key]) parallelGroups[key] = [];
+                    const comp = comps.find(c2 => {
+                      const specC = specComps.find(sc => sc.name === c2.name);
+                      return specC && specC.id === m.callee;
+                    });
+                    if (comp) parallelGroups[key].push(comp.name);
+                  });
+                  // Build batches by walking the dependency order
+                  const batches = [];
+                  const placed = new Set();
+                  const compNames = comps.map(c => c.name);
+                  // Find parallel groups with 2+ members
+                  const pGroups = Object.values(parallelGroups).filter(g => g.length >= 2);
+                  // Walk components in order, grouping parallel ones
+                  for (const c of comps) {
+                    if (placed.has(c.name)) continue;
+                    const pg = pGroups.find(g => g.includes(c.name));
+                    if (pg) {
+                      batches.push(pg.filter(n => !placed.has(n)));
+                      pg.forEach(n => placed.add(n));
+                    } else {
+                      batches.push([c.name]);
+                      placed.add(c.name);
+                    }
+                  }
+                  return batches;
+                };
+                const batches = buildBatches(components, spec?.classSpec);
+                const activeBatchIdx = isRunning ? Math.floor(batches.length * progress) : batches.length;
+                // Map each component to its status based on batch membership
+                const getCompStatus = (compName) => {
+                  for (let bi = 0; bi < batches.length; bi++) {
+                    if (batches[bi].includes(compName)) {
+                      if (bi < activeBatchIdx) return "completed";
+                      if (bi === activeBatchIdx) return "running";
+                      return "waiting";
+                    }
+                  }
+                  return "waiting";
+                };
+                const completedCount = isRunning ? batches.slice(0, activeBatchIdx).reduce((s, b) => s + b.length, 0) + (activeBatchIdx < batches.length ? batches[activeBatchIdx].length : 0) : components.length;
+
                 const statusColors = { completed: ["#DCFCE7","#166534"], running: ["#DBEAFE","#1E40AF"], waiting: ["#F1F5F9","#94A3B8"] };
                 const typeColors = { component: "#475569", solver: "#92400E", environment: "#1E40AF", train: "#6B21A8" };
                 const gpuTotals = {};
@@ -2377,20 +2428,29 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
                       <span><span style={{ color: "#64748B" }}>총 GPU:</span> <strong>{gpuSummary}</strong></span>
                       <span><span style={{ color: "#64748B" }}>총 메모리:</span> <strong>{totalMem}GB</strong></span>
                       <span><span style={{ color: "#64748B" }}>총 CPU:</span> <strong>{totalCpu}코어</strong></span>
-                      <span><span style={{ color: "#64748B" }}>진행:</span> <strong>{Math.min(activeIdx, components.length)}/{components.length} 컴포넌트</strong></span>
+                      <span><span style={{ color: "#64748B" }}>진행:</span> <strong>{Math.min(activeBatchIdx, batches.length)}/{batches.length} 단계</strong></span>
                     </div>
-                    {/* Execution flow */}
+                    {/* Execution flow — batch-aware with parallel groups */}
                     <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
-                      {components.map((c, i) => {
-                        const st = i < activeIdx ? "completed" : i === activeIdx ? "running" : "waiting";
-                        const [bg, fg] = statusColors[st];
+                      {batches.map((batch, bi) => {
+                        const batchStatus = bi < activeBatchIdx ? "completed" : bi === activeBatchIdx ? "running" : "waiting";
+                        const [bg, fg] = statusColors[batchStatus];
                         return (
-                          <div key={c.name} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                            <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, background: bg, color: fg, border: st === "running" ? "2px solid #1E40AF" : "1px solid transparent" }}>
-                              {c.order}. {c.name}
-                              {st === "running" && " ●"}
-                            </span>
-                            {i < components.length - 1 && <span style={{ color: "#CBD5E1", fontSize: 12 }}>→</span>}
+                          <div key={bi} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            {batch.length > 1 ? (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "2px 4px", borderRadius: 6, border: batchStatus === "running" ? "2px solid #1E40AF" : "1px solid #E2E8F0", background: bg }}>
+                                {batch.map(name => {
+                                  const c = components.find(x => x.name === name);
+                                  return <span key={name} style={{ padding: "1px 8px", borderRadius: 4, fontSize: 9, fontWeight: 600, color: fg }}>{c?.order}. {name}{batchStatus === "running" ? " ●" : ""}</span>;
+                                })}
+                              </div>
+                            ) : (
+                              <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, background: bg, color: fg, border: batchStatus === "running" ? "2px solid #1E40AF" : "1px solid transparent" }}>
+                                {components.find(x => x.name === batch[0])?.order}. {batch[0]}
+                                {batchStatus === "running" && " ●"}
+                              </span>
+                            )}
+                            {bi < batches.length - 1 && <span style={{ color: "#CBD5E1", fontSize: 12 }}>→</span>}
                           </div>
                         );
                       })}
@@ -2398,7 +2458,7 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
                     {/* Resource grid */}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
                       {components.map((c, i) => {
-                        const st = i < activeIdx ? "completed" : i === activeIdx ? "running" : "waiting";
+                        const st = getCompStatus(c.name);
                         const borderColor = st === "running" ? "#1E40AF" : st === "completed" ? "#BBF7D0" : "#E2E8F0";
                         const typeBg = { component: "#F1F5F9", solver: "#FEF3C7", environment: "#DBEAFE", train: "#F3E8FF" };
                         const seed = (selectedWL?.id || "").charCodeAt(0) + c.order;
