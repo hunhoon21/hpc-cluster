@@ -356,7 +356,7 @@ export default function App() {
 
   /* ─── Execution Engine (max 1 concurrent, ~10s per job) ─── */
   const MAX_CONCURRENT = 1;
-  const EXEC_TIME = 10000; // 10 seconds
+  const EXEC_TIME = 15000; // 15 seconds
 
   // Process queue: start next queued job if under concurrency limit
   const processQueue = useCallback(() => {
@@ -2326,10 +2326,13 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
         const chartBatches = []; const placed = new Set();
         for (const c of specComps) { if (placed.has(c.name)) continue; const pg = pgList.find(g => g.includes(c.name)); if (pg) { chartBatches.push(pg.filter(n => !placed.has(n))); pg.forEach(n => placed.add(n)); } else { chartBatches.push([c.name]); placed.add(c.name); } }
         const trainBatchIdx = chartBatches.findIndex(b => b.includes(trainName));
-        const trainBatchStart = trainBatchIdx >= 0 ? trainBatchIdx / chartBatches.length : 0.85;
-        // train이 실행 중이거나 완료인 경우에만 차트 표시
+        // Weighted batch timing: train batch gets weight 5, others get 1
+        const chartWeights = chartBatches.map((_, bi) => bi === trainBatchIdx ? 5 : 1);
+        const chartTotalW = chartWeights.reduce((s, w) => s + w, 0);
+        const trainBatchStart = trainBatchIdx >= 0 ? chartWeights.slice(0, trainBatchIdx).reduce((s, w) => s + w, 0) / chartTotalW : 0.85;
+        const trainBatchEnd = trainBatchIdx >= 0 ? (chartWeights.slice(0, trainBatchIdx).reduce((s, w) => s + w, 0) + chartWeights[trainBatchIdx]) / chartTotalW : 1.0;
         const isTrainActive = selectedWL.status === "completed" || (selectedWL.status === "running" && execProgress >= trainBatchStart);
-        const trainProgress = selectedWL.status === "completed" ? 1.0 : Math.min(1, (execProgress - trainBatchStart) / (1 - trainBatchStart));
+        const trainProgress = selectedWL.status === "completed" ? 1.0 : Math.min(1, Math.max(0, (execProgress - trainBatchStart) / (trainBatchEnd - trainBatchStart)));
         const wlSteps = selectedWL.status === "running" ? Math.max(1, Math.floor(metrics.length * Math.max(0, trainProgress))) : metrics.length;
         const visibleMetrics = isTrainActive ? metrics.slice(0, wlSteps) : [];
         return (
@@ -2346,13 +2349,8 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
               </div>
             </div>
 
-            {/* 4 metric charts in 2x2 grid — only when train component is active */}
-            {!isTrainActive && selectedWL.status === "running" && (
-              <div style={{ padding: "30px 20px", textAlign: "center", color: "#94A3B8", fontSize: 13, border: "1px dashed #E2E8F0", borderRadius: 10, marginBottom: 14 }}>
-                학습 메트릭은 <strong>train</strong> 컴포넌트 실행 시 표시됩니다. 현재 사전 처리 단계 진행 중...
-              </div>
-            )}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14, ...(isTrainActive ? {} : { display: "none" }) }}>
+            {/* 4 metric charts in 2x2 grid — empty until train runs, then fill progressively */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
               {renderMetricChart("Reward", visibleMetrics, "reward", -1, 1, "#1E40AF", null)}
               {renderMetricChart("Efficiency (%)", visibleMetrics, "efficiency", 50, 100, "#059669", 83.9)}
               {renderMetricChart("Critic Loss", visibleMetrics.filter(m => m.critic_loss !== undefined), "critic_loss", 0, 6, "#DC2626", null)}
@@ -2428,7 +2426,13 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
                   return batches;
                 };
                 const batches = buildBatches(components, spec?.classSpec);
-                const activeBatchIdx = isRunning ? Math.floor(batches.length * progress) : batches.length;
+                // Weighted batch progress: train batch gets weight 5, others get 1
+                const trainBatchI = batches.findIndex(b => b.some(n => { const sc = specComps.find(x => x.name === n); return sc && library?.find(l => l.id === sc.libraryRef)?.type === "train"; }));
+                const batchWeights = batches.map((_, bi) => bi === trainBatchI ? 5 : 1);
+                const totalWeight = batchWeights.reduce((s, w) => s + w, 0);
+                const weightedProgress = progress * totalWeight;
+                let activeBatchIdx = batches.length;
+                if (isRunning) { let cumW = 0; for (let bi = 0; bi < batches.length; bi++) { cumW += batchWeights[bi]; if (weightedProgress < cumW) { activeBatchIdx = bi; break; } } }
                 // Map each component to its status based on batch membership
                 const getCompStatus = (compName) => {
                   for (let bi = 0; bi < batches.length; bi++) {
