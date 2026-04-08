@@ -2309,7 +2309,7 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
       {/* Training Progress Tab */}
       {selectedWL && metricsTab === "progress" && (selectedWL.status === "completed" || selectedWL.status === "running") && (() => {
         const metrics = generateSimulatedMetrics(selectedWL.id);
-        const wlSteps = selectedWL.status === "running" ? Math.floor(metrics.length * 0.6) : metrics.length;
+        const wlSteps = selectedWL.status === "running" ? Math.max(1, Math.floor(metrics.length * execProgress)) : metrics.length;
         const visibleMetrics = metrics.slice(0, wlSteps);
         return (
           <Card style={{ marginTop: 14 }}>
@@ -2465,9 +2465,13 @@ function WorkloadsPageWithResources({ workloads, specs, library }) {
                         const rng1 = Math.sin(seed * 9301) * 49297; const r1 = rng1 - Math.floor(rng1);
                         const rng2 = Math.sin(seed * 7919 + 1) * 49297; const r2 = rng2 - Math.floor(rng2);
                         const rng3 = Math.sin(seed * 6271 + 2) * 49297; const r3 = rng3 - Math.floor(rng3);
-                        const simGpu = Math.floor(55 + r1 * 30);
-                        const simMem = Math.floor(60 + r2 * 25);
-                        const simCpu = Math.floor(20 + r3 * 40);
+                        // Dynamic fluctuation for running components based on execProgress
+                        const t = execProgress * 20 + c.order;
+                        const flicker = st === "running" ? Math.sin(t * 3.7) * 8 : 0;
+                        const rampUp = st === "running" ? Math.min(1, (execProgress * batches.length - batches.findIndex(b => b.includes(c.name))) * 2) : 1;
+                        const simGpu = Math.floor((55 + r1 * 30 + flicker) * rampUp);
+                        const simMem = Math.floor((60 + r2 * 25 + flicker * 0.7) * rampUp);
+                        const simCpu = Math.floor((20 + r3 * 40 + flicker * 1.2) * rampUp);
                         const gpuColor = c.gpuType === "A100" ? "#1D4ED8" : "#7E22CE";
                         const isActive = st !== "waiting";
                         const renderBar = (label, value, color) => (
